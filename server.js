@@ -15,6 +15,15 @@ import authUserReview from './routes/userReviewRoutes.js';
 import userReviewRoutes from './routes/userReviewRoutes.js';
 
 dotenv.config();
+
+// Basic sanity checks for required env vars in production
+const requiredEnv = ['JWT_SECRET'];
+requiredEnv.forEach((key) => {
+  if (!process.env[key]) {
+    throw new Error(`Environment variable ${key} is required but not set.`);
+  }
+});
+
 connectDB();
 
 const app = express();
@@ -61,7 +70,7 @@ app.use(errorHandler);
 // @Error handling middleware
 
 const PORT = process.env.PORT || 5000;
-const MODE = process.env.NODE_ENV;
+const MODE = process.env.NODE_ENV || 'development';
 
 app.listen(
   PORT,
