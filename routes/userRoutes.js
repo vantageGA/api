@@ -20,8 +20,10 @@ router.post('/users/login', authUser);
 router
   .route('/users/:id')
   .get(protect, getUserProfile)
-  .put(protect, updateUserProfile)
   .delete(protect, admin, deleteUser);
+
+router.route('/users/profile').put(protect, updateUserProfile);
+router.route('/users/:id').put(protect, updateUserProfile);
 
 router
   .route('/user/profile/:id')
