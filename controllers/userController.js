@@ -2,6 +2,7 @@ import asyncHandler from 'express-async-handler';
 import generateToken from '../utils/generateToken.js';
 import User from '../models/userModel.js';
 import nodemailer from 'nodemailer';
+import jwt from 'jsonwebtoken';
 
 // @description: Get All the users Profiles
 // @route: GET /api/users
@@ -211,7 +212,7 @@ const userForgotPassword = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email: email });
 
   if (user) {
-    const token = generateToken(user._id, { expiresIn: '60s' });
+    const token = generateToken(user._id, '15m');
     const link = `${process.env.RESET_PASSWORD_LOCAL_URL}/reset-password/${token}`;
     user.resetPasswordToken = token;
     await user.save();
@@ -267,19 +268,32 @@ const userForgotPassword = asyncHandler(async (req, res) => {
 // @access: PUBLIC
 const updateUserProfilePassword = asyncHandler(async (req, res) => {
   const { resetPasswordToken, password } = req.body;
+  if (!resetPasswordToken || !password) {
+    res.status(400);
+    throw new Error('Missing reset token or password');
+  }
+
+  let decodedToken;
+  try {
+    decodedToken = jwt.verify(resetPasswordToken, process.env.JWT_SECRET);
+  } catch (err) {
+    res.status(401);
+    throw new Error('Invalid or expired reset token');
+  }
+
   const user = await User.findOne({
+    _id: decodedToken.id,
     resetPasswordToken: resetPasswordToken,
   });
-  if (user) {
-    if (password) {
-      user.password = password;
-    }
-    await user.save();
-    res.status(201).json('Password Successfully updated.');
-  } else {
+  if (!user) {
     res.status(404);
     throw new Error('No user found');
   }
+
+  user.password = password;
+  user.resetPasswordToken = undefined;
+  await user.save();
+  res.status(201).json('Password Successfully updated.');
 });
 
 export {
