@@ -42,6 +42,11 @@ const upload = multer({
 
 router.post('/', protect, upload.single('profileImage'), async (req, res) => {
   try {
+    if (!req.file?.path) {
+      res.status(400);
+      throw new Error('No image file provided');
+    }
+
     cloudinary.config({
       cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
       api_key: process.env.CLOUDINARY_API_KEY,
