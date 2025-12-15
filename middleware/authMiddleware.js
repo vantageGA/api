@@ -13,9 +13,11 @@ const protect = asyncHandler(async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = await User.findById(decoded.id).select('-password');
 
-      next();
+      return next();
     } catch (error) {
-      console.log(error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('JWT verification failed:', error);
+      }
       res.status(401);
       throw new Error('Token has failed');
     }
@@ -31,7 +33,7 @@ const admin = (req, res, next) => {
   if (req.user && req.user.isAdmin) {
     next();
   } else {
-    res.status(401);
+    res.status(403);
     throw new Error('Not authorised as an ADMIN');
   }
 };

@@ -11,7 +11,6 @@ import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import imageUploadRoutes from './routes/imageUploadRoutes.js';
 import profileImageRoutes from './routes/profileImageRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
-import authUserReview from './routes/userReviewRoutes.js';
 import userReviewRoutes from './routes/userReviewRoutes.js';
 
 dotenv.config();
@@ -38,25 +37,22 @@ app.use('/api', userRoutes);
 // Profiles Routes
 app.use('/api', profileRoutes);
 // User Review routes
-app.use('/api', authUserReview);
-// User REVIEWER routes
 app.use('/api', userReviewRoutes);
-//User Profile Image upload route
+// User Profile Image upload route
 app.use('/api/userProfileUpload', imageUploadRoutes);
-//PROFILE image upload route
+// Profile image upload route
 app.use('/api/profileUpload', profileImageRoutes);
-//PROFILE image delete route
-app.use('/api', imageUploadRoutes);
-//PROFILE click count
+// Profile click count
 app.use('/api/profile-clicks', profileRoutes);
 
 //create static folder
 const __dirname = path.resolve();
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '/frontend/build')));
+  // Serve Vite build output (client/dist) in production
+  app.use(express.static(path.join(__dirname, 'client', 'dist')));
 
   app.get('*', (req, res) =>
-    res.sendFile(path.resolve(__dirname, 'frontend', 'build', 'index.html')),
+    res.sendFile(path.resolve(__dirname, 'client', 'dist', 'index.html')),
   );
 } else {
   app.get('/', (req, res) => {

@@ -17,13 +17,15 @@ import { protect, admin } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.post('/users/login', authUser);
+// Self profile operations
+router.route('/users/profile').get(protect, getUserProfile);
+router.route('/users/profile').put(protect, updateUserProfile);
+
+// Admin-only user management
 router
   .route('/users/:id')
   .get(protect, getUserProfile)
   .delete(protect, admin, deleteUser);
-
-router.route('/users/profile').put(protect, updateUserProfile);
-router.route('/users/:id').put(protect, updateUserProfile);
 
 router
   .route('/user/profile/:id')

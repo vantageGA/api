@@ -78,9 +78,7 @@ const registerUser = asyncHandler(async (req, res) => {
       },
     });
 
-    const link = `${
-      process.env.MAILER_LOCAL_URL
-    }api/verify/token=${generateToken(user._id)}`;
+    const link = `${process.env.MAILER_LOCAL_URL.replace(/\/$/, '')}/api/verify?token=${generateToken(user._id)}`;
 
     // send mail with defined transport object
     let info = await transporter.sendMail({
@@ -198,6 +196,11 @@ const updateIsAdmin = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
 
   if (user) {
+    if (typeof req.body.val !== 'boolean') {
+      res.status(400);
+      throw new Error('isAdmin update requires a boolean value');
+    }
+
     user.isAdmin = req.body.val;
     const updateIsAdmin = await user.save();
     res.json(updateIsAdmin);
