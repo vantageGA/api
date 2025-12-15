@@ -26,7 +26,26 @@ requiredEnv.forEach((key) => {
 connectDB();
 
 const app = express();
-app.use(cors());
+// CORS: allow configured frontend origins
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.RESET_PASSWORD_LOCAL_URL,
+  process.env.MAILER_LOCAL_URL,
+].filter(Boolean);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // allow same-origin / curl
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json()); // This needed to accept json data
 
 //Routes
