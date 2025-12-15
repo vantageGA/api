@@ -12,7 +12,7 @@ import { protect, admin } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.get('/reviewers/admin/:id', protect, admin, getAllUsersReviews);
-router.get('/reviewer/public/:id', protect, getAllUsersReviewers);
+router.get('/reviewer/public/:id', getAllUsersReviewers);
 router.delete('/reviewer/admin/:id', protect, admin, deleteReviewer);
 router.post('/users-review/login', authUserReview);
 router.post('/users-review', registerUserReviewer);

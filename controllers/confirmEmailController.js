@@ -3,62 +3,78 @@ import User from '../models/userModel.js';
 import UserReviewer from '../models/userReviewerModel.js';
 import jwt from 'jsonwebtoken';
 
+// Normalize redirect base (frontend origin). Falls back to '/' if not set.
+const buildRedirectUrl = () => {
+  const base =
+    process.env.CONFIRM_REDIRECT_URL ||
+    process.env.RESET_PASSWORD_LOCAL_URL ||
+    '';
+  const normalized = base.replace(/\/$/, '');
+  return normalized ? `${normalized}/` : '/';
+};
+
 // @description: Confirmation Email
-// @route: GET /api/verify/id
+// @route: GET /api/verify?token=... (legacy: /api/verify/token=:id)
 // @access: public
 const updateConfirmEmail = asyncHandler(async (req, res) => {
-  // const token = req.params.id;
-  const decodedToken = jwt.verify(
-    req.params.id,
-    process.env.JWT_SECRET,
-    function (err, decoded) {
-      return decoded.id;
-    },
-  );
+  const token = req.query.token || req.params.id;
+  if (!token) {
+    res.status(400);
+    throw new Error('Verification token is required');
+  }
 
-  const user = await User.findById(decodedToken);
+  let decodedToken;
+  try {
+    decodedToken = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    res.status(401);
+    throw new Error('Invalid or expired verification token');
+  }
 
-  if (user) {
-    user.isConfirmed = true;
-    await user.save();
-    if (process.env.NODE_ENV === 'production') {
-      return res.redirect('https://bodyvantage.herokuapp.com/');
-    } else {
-      return res.status(200).send({ message: 'Account Verified' });
-    }
-  } else {
+  const user = await User.findById(decodedToken.id);
+
+  if (!user) {
     res.status(404);
     throw new Error('No user found');
   }
+
+  user.isConfirmed = true;
+  await user.save();
+
+  const redirectUrl = buildRedirectUrl();
+  return res.redirect(redirectUrl);
 });
 
 // @description: Confirmation REVIEWER Email
-// @route: GET /api/verifyReviewer/id
+// @route: GET /api/verifyReviewer?token=... (legacy: /api/verifyReviewer/token=:id)
 // @access: public
 const updateConfirmReviewerEmail = asyncHandler(async (req, res) => {
-  // const token = req.params.id;
-  const decodedToken = jwt.verify(
-    req.params.id,
-    process.env.JWT_SECRET,
-    function (err, decoded) {
-      return decoded.id;
-    },
-  );
+  const token = req.query.token || req.params.id;
+  if (!token) {
+    res.status(400);
+    throw new Error('Verification token is required');
+  }
 
-  const userReviewer = await UserReviewer.findById(decodedToken);
+  let decodedToken;
+  try {
+    decodedToken = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    res.status(401);
+    throw new Error('Invalid or expired verification token');
+  }
 
-  if (userReviewer) {
-    userReviewer.isConfirmed = true;
-    await userReviewer.save();
-    if (process.env.NODE_ENV === 'production') {
-      return res.redirect('https://bodyvantage.herokuapp.com/');
-    } else {
-      return res.status(200).send({ message: 'Account Verified' });
-    }
-  } else {
+  const userReviewer = await UserReviewer.findById(decodedToken.id);
+
+  if (!userReviewer) {
     res.status(404);
     throw new Error('No Reviewer found');
   }
+
+  userReviewer.isConfirmed = true;
+  await userReviewer.save();
+
+  const redirectUrl = buildRedirectUrl();
+  return res.redirect(redirectUrl);
 });
 
 export { updateConfirmEmail, updateConfirmReviewerEmail };

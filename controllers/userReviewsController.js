@@ -8,25 +8,19 @@ import nodemailer from 'nodemailer';
 // @access: Admin
 const getAllUsersReviews = asyncHandler(async (req, res) => {
   const reviewers = await UserReviewer.find({});
-  if (reviewers) {
-    res.json(reviewers);
-  } else {
-    res.status(404);
-    throw new Error('No reviewers found');
-  }
+  res.json(reviewers);
 });
 
 // @description: Get All the user REVIEWS
 // @route: GET /api/reviewers
 // @access: public
 const getAllUsersReviewers = asyncHandler(async (req, res) => {
-  const reviewer = await await UserReviewer.findById(req.params.id);
-  if (reviewer) {
-    res.json(reviewer);
-  } else {
+  const reviewer = await UserReviewer.findById(req.params.id);
+  if (!reviewer) {
     res.status(404);
     throw new Error('No reviewer found');
   }
+  res.json(reviewer);
 });
 
 // @description: Delete a single reviewer
@@ -106,9 +100,10 @@ const registerUserReviewer = asyncHandler(async (req, res) => {
       },
     });
 
-    const link = `${
-      process.env.MAILER_LOCAL_URL
-    }api/verifyReviewer/token=${generateToken(userReviewer._id)}`;
+    const link = `${process.env.MAILER_LOCAL_URL.replace(
+      /\/$/,
+      '',
+    )}/api/verifyReviewer?token=${generateToken(userReviewer._id)}`;
 
     // send mail with defined transport object
     let info = await transporter.sendMail({

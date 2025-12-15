@@ -76,22 +76,22 @@ const createProfile = asyncHandler(async (req, res) => {
     numReviews: 0,
   });
 
-  const createProfile = await profile.save();
-  res.status(210).json(createProfile);
+  const createdProfile = await profile.save();
+  res.status(201).json(createdProfile);
 });
 
 // @description: User Profile
 // @route: GET /api/profile
 // @access: PRIVATE
 const getProfile = asyncHandler(async (req, res) => {
-  const profile = await Profile.find({ user: req.user._id.toString() });
+  const profile = await Profile.findOne({ user: req.user._id.toString() });
 
-  if (profile) {
-    res.json(...profile);
-  } else {
+  if (!profile) {
     res.status(404);
     throw new Error('Profile not found');
   }
+
+  res.json(profile);
 });
 
 // @description: Update Profile CLICKS
@@ -100,20 +100,17 @@ const getProfile = asyncHandler(async (req, res) => {
 const updateProfileClicks = asyncHandler(async (req, res) => {
   const { _id, profileClickCounter } = req.body;
 
-  // Find profile
-  const profile = await Profile.find({
-    _id,
-  });
+  const profile = await Profile.findById(_id);
 
-  if (profile) {
-    profile[0].profileClickCounter =
-      profile[0].profileClickCounter + profileClickCounter;
-    const updatedProfile = await profile[0].save();
-    res.json(updatedProfile);
-  } else {
+  if (!profile) {
     res.status(404);
     throw new Error('User Not found');
   }
+
+  profile.profileClickCounter =
+    (profile.profileClickCounter || 0) + (profileClickCounter || 0);
+  const updatedProfile = await profile.save();
+  res.json(updatedProfile);
 });
 
 // @description: Update Profile
@@ -121,7 +118,6 @@ const updateProfileClicks = asyncHandler(async (req, res) => {
 // @access: PRIVATE
 const updateProfile = asyncHandler(async (req, res) => {
   const {
-    user,
     name,
     email,
     faceBook,
@@ -145,46 +141,38 @@ const updateProfile = asyncHandler(async (req, res) => {
     specialisationFour,
   } = req.body;
 
-  // Find all profiles
-  const profile = await Profile.find({});
+  const profile = await Profile.findOne({ user: req.params.id });
 
-  // Filter profile id
-  const searchId = profile.filter((id) => {
-    if (req.params.id == id.user) {
-      return id._id.toString();
-    }
-  });
-
-  if (searchId[0]) {
-    searchId[0].user = req.params.id;
-    searchId[0].name = name;
-    searchId[0].email = email;
-    searchId[0].faceBook = faceBook;
-    searchId[0].instagram = instagram;
-    searchId[0].websiteUrl = websiteUrl;
-    searchId[0].profileImage = profileImage;
-    searchId[0].description = description;
-    searchId[0].qualifications = qualifications;
-    searchId[0].specialisation = specialisation;
-    searchId[0].location = location;
-    searchId[0].telephoneNumber = telephoneNumber;
-    searchId[0].keyWordSearch = keyWordSearch;
-    searchId[0].keyWordSearchOne = keyWordSearchOne;
-    searchId[0].keyWordSearchTwo = keyWordSearchTwo;
-    searchId[0].keyWordSearchThree = keyWordSearchThree;
-    searchId[0].keyWordSearchFour = keyWordSearchFour;
-    searchId[0].keyWordSearchFive = keyWordSearchFive;
-    searchId[0].specialisationOne = specialisationOne;
-    searchId[0].specialisationTwo = specialisationTwo;
-    searchId[0].specialisationThree = specialisationThree;
-    searchId[0].specialisationFour = specialisationFour;
-
-    const updateProfile = await searchId[0].save();
-    res.json(updateProfile);
-  } else {
+  if (!profile) {
     res.status(404);
     throw new Error('No user found');
   }
+
+  profile.user = req.params.id;
+  profile.name = name;
+  profile.email = email;
+  profile.faceBook = faceBook;
+  profile.instagram = instagram;
+  profile.websiteUrl = websiteUrl;
+  profile.profileImage = profileImage;
+  profile.description = description;
+  profile.qualifications = qualifications;
+  profile.specialisation = specialisation;
+  profile.location = location;
+  profile.telephoneNumber = telephoneNumber;
+  profile.keyWordSearch = keyWordSearch;
+  profile.keyWordSearchOne = keyWordSearchOne;
+  profile.keyWordSearchTwo = keyWordSearchTwo;
+  profile.keyWordSearchThree = keyWordSearchThree;
+  profile.keyWordSearchFour = keyWordSearchFour;
+  profile.keyWordSearchFive = keyWordSearchFive;
+  profile.specialisationOne = specialisationOne;
+  profile.specialisationTwo = specialisationTwo;
+  profile.specialisationThree = specialisationThree;
+  profile.specialisationFour = specialisationFour;
+
+  const updatedProfile = await profile.save();
+  res.json(updatedProfile);
 });
 
 // @description: Delete a single user
@@ -210,27 +198,18 @@ const deleteReview = asyncHandler(async (req, res) => {
     { $pull: { reviews: { _id: req.body.reviewId } } },
   );
 
-  const review = profileReview.reviews.filter((review) => {
-    if (req.body.reviewId === review._id.toString()) {
-      return review;
-    }
-  });
-
   // We need you update the number of reviews and rating
   const profile = await Profile.findById(req.params.id);
   profile.numReviews = profile.reviews.length;
   profile.rating =
-    profile.reviews.reduce((acc, item) => item.rating + acc, 0) /
-    profile.reviews.length;
+    profile.reviews.length > 0
+      ? profile.reviews.reduce((acc, item) => item.rating + acc, 0) /
+        profile.reviews.length
+      : 0;
   await profile.save();
   // We need you update the number of reviews and rating
 
-  if (review.length > 0) {
-    res.json({ message: 'Review successfully removed' });
-  } else {
-    res.status(404);
-    throw new Error('Review Not Found');
-  }
+  res.json({ message: 'Review successfully removed' });
 });
 
 // @description: CREATE a new review
