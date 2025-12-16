@@ -58,7 +58,7 @@ app.use('/api', profileRoutes);
 // User Review routes
 app.use('/api', userReviewRoutes);
 // User Profile Image upload route
-app.use('/api/userProfileUpload', imageUploadRoutes);
+app.use('/api', imageUploadRoutes);
 // Profile image upload route
 app.use('/api/profileUpload', profileImageRoutes);
 // Profile click count

@@ -45,7 +45,7 @@ const upload = multer({
 // @access: Private
 
 router.post(
-  '/',
+  '/userProfileUpload',
   protect,
   upload.single('userProfileImage'),
   userProfileImageUpload,

@@ -5,7 +5,7 @@ import ProfileImages from '../models/profileImageModel.js';
 import User from '../models/userModel.js';
 
 // @description: Post USER Profile Images
-// @route: POST /api/profileUpload
+// @route: POST /api/userProfileUpload
 // @access: Private
 const userProfileImageUpload = asyncHandler(async (req, res) => {
   if (!req.file?.path) {
