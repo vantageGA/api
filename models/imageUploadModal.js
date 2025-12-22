@@ -18,7 +18,7 @@ const userProfileImageSchema = mongoose.Schema(
     },
   },
   {
-    timestamp: true,
+    timestamps: true,
   },
 );
 

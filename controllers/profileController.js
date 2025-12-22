@@ -124,7 +124,7 @@ const updateProfileClicks = asyncHandler(async (req, res) => {
 });
 
 // @description: Update Profile
-// @route: PUT /api/profile
+// @route: PUT /api/profile/:id
 // @access: PRIVATE
 const updateProfile = asyncHandler(async (req, res) => {
   const {
@@ -151,11 +151,17 @@ const updateProfile = asyncHandler(async (req, res) => {
     specialisationFour,
   } = req.body;
 
+  // Verify user is updating their own profile
+  if (req.params.id !== req.user._id.toString()) {
+    res.status(403);
+    throw new Error('Not authorized to update this profile');
+  }
+
   const profile = await Profile.findOne({ user: req.params.id });
 
   if (!profile) {
     res.status(404);
-    throw new Error('No user found');
+    throw new Error('Profile not found');
   }
 
   profile.user = req.params.id;
@@ -185,13 +191,13 @@ const updateProfile = asyncHandler(async (req, res) => {
   res.json(updatedProfile);
 });
 
-// @description: Delete a single user
+// @description: Delete a single profile
 // @route: DELETE /api/profiles/admin/:id
 // @access: PRIVATE/Admin
 const deleteProfile = asyncHandler(async (req, res) => {
   const profile = await Profile.findById(req.params.id);
   if (profile) {
-    await profile.remove();
+    await profile.deleteOne();
     res.json({ message: 'Profile successfully removed' });
   } else {
     res.status(404);
@@ -322,7 +328,7 @@ const updateProfileQualificationToTrue = asyncHandler(async (req, res) => {
     res.json(updateProfile);
   } else {
     res.status(404);
-    throw new Error('Order not found');
+    throw new Error('Profile not found');
   }
 });
 

@@ -29,7 +29,7 @@ const getAllUsersReviewers = asyncHandler(async (req, res) => {
 const deleteReviewer = asyncHandler(async (req, res) => {
   const reviewer = await UserReviewer.findById(req.params.id);
   if (reviewer) {
-    await reviewer.remove();
+    await reviewer.deleteOne();
     res.json({ message: 'Reviewer successfully removed' });
   } else {
     res.status(404);

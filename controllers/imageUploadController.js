@@ -78,7 +78,7 @@ const deleteProfileImage = asyncHandler(async (req, res) => {
   }
 
   // Remove from profile Image model
-  await profile.remove();
+  await profile.deleteOne();
   res.json({ message: 'Profile image successfully removed' });
 });
 

@@ -204,7 +204,7 @@ const deleteUser = asyncHandler(async (req, res) => {
       if (image.cloudinaryId) {
         await cloudinary.uploader.destroy(image.cloudinaryId);
       }
-      await image.remove();
+      await image.deleteOne();
     }
 
     // 2. Delete all UserProfileImages (user account images) and their Cloudinary files
@@ -213,7 +213,7 @@ const deleteUser = asyncHandler(async (req, res) => {
       if (image.cloudinaryId) {
         await cloudinary.uploader.destroy(image.cloudinaryId);
       }
-      await image.remove();
+      await image.deleteOne();
     }
 
     // 3. Delete the user's Profile (this also deletes embedded reviews)
@@ -223,11 +223,11 @@ const deleteUser = asyncHandler(async (req, res) => {
       if (profile.cloudinaryId) {
         await cloudinary.uploader.destroy(profile.cloudinaryId);
       }
-      await profile.remove();
+      await profile.deleteOne();
     }
 
     // 4. Delete the User
-    await user.remove();
+    await user.deleteOne();
 
     res.json({
       message: 'User and all related data successfully removed',
@@ -261,7 +261,7 @@ const updateIsAdmin = asyncHandler(async (req, res) => {
     res.json(updateIsAdmin);
   } else {
     res.status(404);
-    throw new Error('Order not found');
+    throw new Error('User not found');
   }
 });
 
