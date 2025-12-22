@@ -48,10 +48,19 @@ const getProfileById = asyncHandler(async (req, res) => {
 // @route: POST /api/profiles
 // @access: Private and Admin
 const createProfile = asyncHandler(async (req, res) => {
+  // Check if profile already exists for this user
+  const existingProfile = await Profile.findOne({ user: req.user._id });
+
+  if (existingProfile) {
+    res.status(400);
+    throw new Error('Profile already exists for this user');
+  }
+
+  // Create profile with user's email and name from their account
   const profile = new Profile({
     user: req.user._id,
-    name: '',
-    email: ``,
+    name: req.user.name || '',
+    email: req.user.email || undefined, // Use undefined instead of empty string for sparse index
     faceBook: ``,
     instagram: ``,
     profileImage: 'uploads/profiles/sample.png',

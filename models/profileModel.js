@@ -57,7 +57,8 @@ const profileSchema = mongoose.Schema(
   {
     user: {
       type: mongoose.Schema.Types.ObjectId,
-      required: false,
+      required: true,
+      unique: true, // Each user can only have one profile
       ref: 'User',
     },
     name: {
@@ -67,6 +68,7 @@ const profileSchema = mongoose.Schema(
       type: String,
       required: false,
       unique: true,
+      sparse: true, // Allows multiple null/undefined values, but enforces uniqueness for actual values
     },
     faceBook: {
       type: String,

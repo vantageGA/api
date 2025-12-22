@@ -29,9 +29,11 @@ router.route('/profile').get(protect, getProfile);
 router.route('/profile-clicks').put(updateProfileClicks);
 
 //Get all profiles ADMIN route
+router.route('/profiles/admin').get(protect, admin, getAllProfilesAdmin);
+
+//Delete or update specific profile ADMIN routes
 router
   .route('/profiles/admin/:id')
-  .get(protect, admin, getAllProfilesAdmin)
   .delete(protect, admin, deleteProfile)
   .put(protect, admin, updateProfileQualificationToTrue);
 
