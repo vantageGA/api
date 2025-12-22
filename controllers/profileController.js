@@ -95,9 +95,10 @@ const createProfile = asyncHandler(async (req, res) => {
 const getProfile = asyncHandler(async (req, res) => {
   const profile = await Profile.findOne({ user: req.user._id.toString() });
 
+  // Return null instead of 404 if profile doesn't exist
+  // This is expected for users who haven't created a profile yet
   if (!profile) {
-    res.status(404);
-    throw new Error('Profile not found');
+    return res.json(null);
   }
 
   res.json(profile);

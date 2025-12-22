@@ -1,6 +1,10 @@
 import asyncHandler from 'express-async-handler';
 import generateToken from '../utils/generateToken.js';
 import User from '../models/userModel.js';
+import Profile from '../models/profileModel.js';
+import ProfileImages from '../models/profileImageModel.js';
+import UserProfileImages from '../models/imageUploadModal.js';
+import cloudinary from 'cloudinary';
 import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
 
@@ -175,17 +179,68 @@ const getUserProfileById = asyncHandler(async (req, res) => {
   }
 });
 
-// @description: Delete a single user
+// @description: Delete a single user with all related data
 // @route: DELETE /api/users/:id
 // @access: PRIVATE/Admin
 const deleteUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
-  if (user) {
-    await user.remove();
-    res.json({ message: 'User successfully removed' });
-  } else {
+
+  if (!user) {
     res.status(404);
     throw new Error('User Not Found');
+  }
+
+  // Configure Cloudinary
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_SECRET,
+  });
+
+  try {
+    // 1. Delete all ProfileImages (profile page images) and their Cloudinary files
+    const profileImages = await ProfileImages.find({ user: req.params.id });
+    for (const image of profileImages) {
+      if (image.cloudinaryId) {
+        await cloudinary.uploader.destroy(image.cloudinaryId);
+      }
+      await image.remove();
+    }
+
+    // 2. Delete all UserProfileImages (user account images) and their Cloudinary files
+    const userProfileImages = await UserProfileImages.find({ user: req.params.id });
+    for (const image of userProfileImages) {
+      if (image.cloudinaryId) {
+        await cloudinary.uploader.destroy(image.cloudinaryId);
+      }
+      await image.remove();
+    }
+
+    // 3. Delete the user's Profile (this also deletes embedded reviews)
+    const profile = await Profile.findOne({ user: req.params.id });
+    if (profile) {
+      // Delete profile's main image from Cloudinary if it exists
+      if (profile.cloudinaryId) {
+        await cloudinary.uploader.destroy(profile.cloudinaryId);
+      }
+      await profile.remove();
+    }
+
+    // 4. Delete the User
+    await user.remove();
+
+    res.json({
+      message: 'User and all related data successfully removed',
+      deleted: {
+        profileImages: profileImages.length,
+        userProfileImages: userProfileImages.length,
+        profile: profile ? 1 : 0,
+        user: 1
+      }
+    });
+  } catch (error) {
+    res.status(500);
+    throw new Error(`Error deleting user and related data: ${error.message}`);
   }
 });
 
