@@ -3,6 +3,7 @@ import connectDB from './config/db.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import cloudinary from 'cloudinary';
 
 import contactFormRoutes from './routes/contactFormRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -12,17 +13,23 @@ import imageUploadRoutes from './routes/imageUploadRoutes.js';
 import profileImageRoutes from './routes/profileImageRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import userReviewRoutes from './routes/userReviewRoutes.js';
+import { apiLimiter } from './middleware/rateLimitMiddleware.js';
+import { validateEnv } from './config/validateEnv.js';
 
+// Load environment variables
 dotenv.config();
 
-// Basic sanity checks for required env vars in production
-const requiredEnv = ['JWT_SECRET'];
-requiredEnv.forEach((key) => {
-  if (!process.env[key]) {
-    throw new Error(`Environment variable ${key} is required but not set.`);
-  }
+// Validate environment variables before starting the server
+validateEnv();
+
+// Configure Cloudinary once at startup
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_SECRET,
 });
 
+// Connect to database
 connectDB();
 
 const app = express();
@@ -46,7 +53,13 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-app.use(express.json()); // This needed to accept json data
+
+// Limit payload size to prevent large payload attacks
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Apply general rate limiting to all routes
+app.use('/api', apiLimiter);
 
 //Routes
 app.use('/api', confirmEmailRoutes);

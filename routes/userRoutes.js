@@ -10,34 +10,52 @@ import {
   updateIsAdmin,
   userForgotPassword,
   updateUserProfilePassword,
+  verifyEmail,
+  verifyEmailChange,
 } from '../controllers/userController.js';
 
 import { protect, admin } from '../middleware/authMiddleware.js';
+import {
+  loginLimiter,
+  registrationLimiter,
+  passwordResetLimiter
+} from '../middleware/rateLimitMiddleware.js';
 
 const router = express.Router();
 
-router.post('/users/login', authUser);
-// Self profile operations
-router.route('/users/profile').get(protect, getUserProfile);
-router.route('/users/profile').put(protect, updateUserProfile);
+// Authentication routes (with rate limiting)
+router.post('/users/login', loginLimiter, authUser);
 
-// Admin-only user management
-router
-  .route('/users/:id')
-  .get(protect, getUserProfile)
-  .delete(protect, admin, deleteUser);
-
-router
-  .route('/user/profile/:id')
-  .get(getUserProfileById)
-  .put(protect, admin, updateIsAdmin);
-
+// User registration and listing
 router
   .route('/users')
-  .post(registerUser)
+  .post(registrationLimiter, registerUser)
   .get(protect, admin, getAllUsersProfile);
 
-router.route('/user-forgot-password').post(userForgotPassword);
-router.route('/user-update-password').put(updateUserProfilePassword);
+// Password reset routes (with rate limiting)
+router.post('/user-forgot-password', passwordResetLimiter, userForgotPassword);
+router.put('/user-update-password', updateUserProfilePassword);
+
+// Email verification routes
+router.get('/verify', verifyEmail);
+router.get('/verify-email-change', verifyEmailChange);
+
+// Self profile operations
+router
+  .route('/users/profile')
+  .get(protect, getUserProfile)
+  .put(protect, updateUserProfile);
+
+// Admin-only user management by ID
+router
+  .route('/users/:id')
+  .get(protect, admin, getUserProfileById) // FIXED: was incorrectly using getUserProfile
+  .delete(protect, admin, deleteUser);
+
+// Public profile view and admin update
+router
+  .route('/user/profile/:id')
+  .get(getUserProfileById) // Public access
+  .put(protect, admin, updateIsAdmin);
 
 export default router;

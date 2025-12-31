@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 const userSchema = mongoose.Schema(
   {
@@ -35,6 +36,25 @@ const userSchema = mongoose.Schema(
     resetPasswordToken: {
       type: String,
     },
+    resetPasswordTokenExpiry: {
+      type: Date,
+    },
+    resetPasswordAttempts: {
+      type: Number,
+      default: 0,
+    },
+    resetPasswordLastAttempt: {
+      type: Date,
+    },
+    pendingEmail: {
+      type: String,
+    },
+    emailChangeToken: {
+      type: String,
+    },
+    emailChangeTokenExpiry: {
+      type: Date,
+    },
   },
   {
     timestamps: true,
@@ -44,7 +64,31 @@ const userSchema = mongoose.Schema(
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
-// Adding the encrypton before saving to DB
+
+// Create hashed password reset token
+userSchema.methods.createPasswordResetToken = function (token) {
+  // Hash the token before storing
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  this.resetPasswordToken = hashedToken;
+  this.resetPasswordTokenExpiry = Date.now() + 15 * 60 * 1000; // 15 minutes
+  return hashedToken;
+};
+
+// Verify password reset token
+userSchema.methods.verifyPasswordResetToken = function (token) {
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  return this.resetPasswordToken === hashedToken &&
+         this.resetPasswordTokenExpiry > Date.now();
+};
+
+// Clear password reset fields
+userSchema.methods.clearPasswordResetToken = function () {
+  this.resetPasswordToken = undefined;
+  this.resetPasswordTokenExpiry = undefined;
+  this.resetPasswordAttempts = 0;
+};
+
+// Adding the encryption before saving to DB
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     next();
