@@ -108,17 +108,25 @@ app.use('/api/profileUpload', profileImageRoutes);
 
 //create static folder
 const __dirname = path.resolve();
-if (process.env.NODE_ENV === 'production') {
-  // Serve Vite build output (client/dist) in production
-  app.use(express.static(path.join(__dirname, 'client', 'dist')));
+
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'BodyVantage API is running',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Only serve frontend if client build exists (for local monorepo deployment)
+if (process.env.SERVE_FRONTEND === 'true') {
+  const clientBuildPath = path.join(__dirname, 'client', 'dist');
+  app.use(express.static(clientBuildPath));
 
   app.get('*', (req, res) =>
-    res.sendFile(path.resolve(__dirname, 'client', 'dist', 'index.html')),
+    res.sendFile(path.resolve(clientBuildPath, 'index.html')),
   );
-} else {
-  app.get('/', (req, res) => {
-    res.send('API is running in  Development or there was an error');
-  });
 }
 
 // @Error handling middleware
