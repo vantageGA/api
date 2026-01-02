@@ -332,6 +332,10 @@ const createProfileReview = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('Reviewer profile not found');
   }
+  if (reviewerProfile.isConfirmed !== true) {
+    res.status(403);
+    throw new Error('Please confirm your email address before submitting a review');
+  }
 
   // Get target profile (use findOne, not find)
   const profile = await Profile.findOne({ user: userProfileId });

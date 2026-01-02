@@ -1,5 +1,7 @@
 import asyncHandler from 'express-async-handler';
-import generateToken from '../utils/generateToken.js';
+import generateToken, {
+  generateEmailVerificationToken,
+} from '../utils/generateToken.js';
 import UserReviewer from '../models/userReviewerModel.js';
 import nodemailer from 'nodemailer';
 
@@ -96,14 +98,17 @@ const registerUserReviewer = asyncHandler(async (req, res) => {
         pass: process.env.MAILER_PW,
       },
       tls: {
-        rejectUnauthorized: false,
+        rejectUnauthorized: process.env.NODE_ENV === 'production',
+        minVersion: 'TLSv1.2', // Enforce minimum TLS version
       },
     });
 
     const link = `${process.env.MAILER_LOCAL_URL.replace(
       /\/$/,
       '',
-    )}/api/verifyReviewer?token=${generateToken(userReviewer._id)}`;
+    )}/api/verifyReviewer?token=${generateEmailVerificationToken(
+      userReviewer._id,
+    )}`;
 
     // send mail with defined transport object
     let info = await transporter.sendMail({
