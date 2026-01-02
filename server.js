@@ -4,6 +4,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import cloudinary from 'cloudinary';
+import helmet from 'helmet';
+import mongoSanitize from 'express-mongo-sanitize';
 
 import contactFormRoutes from './routes/contactFormRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -15,6 +17,7 @@ import profileRoutes from './routes/profileRoutes.js';
 import userReviewRoutes from './routes/userReviewRoutes.js';
 import { apiLimiter } from './middleware/rateLimitMiddleware.js';
 import { validateEnv } from './config/validateEnv.js';
+import { initEmailTransporter } from './utils/emailService.js';
 
 // Load environment variables
 dotenv.config();
@@ -32,7 +35,27 @@ cloudinary.config({
 // Connect to database
 connectDB();
 
+// Initialize email transporter
+initEmailTransporter();
+
 const app = express();
+
+// Security middleware - must be early in the middleware stack
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
+}));
 // CORS: allow configured frontend origins
 const allowedOrigins = [
   process.env.FRONTEND_URL,
@@ -58,6 +81,14 @@ app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Prevent NoSQL injection by sanitizing user input
+app.use(mongoSanitize({
+  replaceWith: '_',
+  onSanitize: ({ req, key }) => {
+    console.warn(`⚠️  Sanitized NoSQL injection attempt: ${key} in ${req.originalUrl}`);
+  }
+}));
+
 // Apply general rate limiting to all routes
 app.use('/api', apiLimiter);
 
@@ -74,8 +105,6 @@ app.use('/api', userReviewRoutes);
 app.use('/api', imageUploadRoutes);
 // Profile image upload route
 app.use('/api/profileUpload', profileImageRoutes);
-// Profile click count
-app.use('/api/profile-clicks', profileRoutes);
 
 //create static folder
 const __dirname = path.resolve();

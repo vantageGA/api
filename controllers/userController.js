@@ -44,7 +44,10 @@ const getAllUsersProfile = asyncHandler(async (req, res) => {
 // @access: Public
 const authUser = asyncHandler(async (req, res) => {
   // Validate input
-  const { error, value } = loginSchema.validate(req.body);
+  const { error, value } = loginSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false
+  });
   if (error) {
     res.status(400);
     throw new Error(error.details[0].message);
@@ -104,7 +107,10 @@ const authUser = asyncHandler(async (req, res) => {
 // @access: Public
 const registerUser = asyncHandler(async (req, res) => {
   // Validate input
-  const { error, value } = registerSchema.validate(req.body);
+  const { error, value } = registerSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false
+  });
   if (error) {
     res.status(400);
     throw new Error(error.details[0].message);
@@ -206,7 +212,10 @@ const getUserProfile = asyncHandler(async (req, res) => {
 // @access: PRIVATE
 const updateUserProfile = asyncHandler(async (req, res) => {
   // Validate input
-  const { error, value } = updateProfileSchema.validate(req.body);
+  const { error, value } = updateProfileSchema.validate(req.body, {
+    stripUnknown: true, // Remove fields not in schema (like 'id')
+    abortEarly: false
+  });
   if (error) {
     res.status(400);
     throw new Error(error.details[0].message);
@@ -482,7 +491,10 @@ const updateIsAdmin = asyncHandler(async (req, res) => {
 
 const userForgotPassword = asyncHandler(async (req, res) => {
   // Validate input
-  const { error, value } = forgotPasswordSchema.validate(req.body);
+  const { error, value } = forgotPasswordSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false
+  });
   if (error) {
     res.status(400);
     throw new Error(error.details[0].message);
@@ -531,7 +543,10 @@ const userForgotPassword = asyncHandler(async (req, res) => {
 // @access: PUBLIC
 const updateUserProfilePassword = asyncHandler(async (req, res) => {
   // Validate input
-  const { error, value } = resetPasswordSchema.validate(req.body);
+  const { error, value } = resetPasswordSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false
+  });
   if (error) {
     res.status(400);
     throw new Error(error.details[0].message);

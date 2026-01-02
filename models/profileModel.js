@@ -105,9 +105,18 @@ const profileSchema = mongoose.Schema(
     telephoneNumber: {
       type: String,
     },
-    keyWordSearch: {
-      type: String,
+    // Individual keywords for search - stored as array for better indexing
+    keywords: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: function (v) {
+          return v.length <= 5;
+        },
+        message: 'Maximum 5 keywords allowed',
+      },
     },
+    // Legacy individual keyword fields - kept for backward compatibility during migration
     keyWordSearchOne: {
       type: String,
     },
@@ -150,6 +159,31 @@ const profileSchema = mongoose.Schema(
     timestamps: true,
   },
 );
+
+// Text indexes for efficient full-text search
+// MongoDB will use these indexes for $text queries
+profileSchema.index({
+  name: 'text',
+  description: 'text',
+  location: 'text',
+  specialisation: 'text',
+  keywords: 'text',
+}, {
+  weights: {
+    name: 10,
+    keywords: 8,
+    specialisation: 6,
+    location: 4,
+    description: 2,
+  },
+  name: 'profile_search_index',
+});
+
+// Individual field indexes for filtering
+profileSchema.index({ location: 1 });
+profileSchema.index({ specialisation: 1 });
+profileSchema.index({ rating: -1, numReviews: -1 }); // Compound index for sorting
+profileSchema.index({ keywords: 1 }); // Array index for keyword queries
 
 const Profile = mongoose.model('Profile', profileSchema);
 

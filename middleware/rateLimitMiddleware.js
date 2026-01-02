@@ -69,6 +69,29 @@ export const passwordResetLimiter = rateLimit({
   }
 });
 
+// Rate limiter for review submissions
+export const reviewLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 5, // Limit each reviewer to 5 reviews per day
+  message: {
+    error: 'Too many reviews submitted. Please try again tomorrow.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.params.id, // Rate limit by reviewer ID (from URL)
+  handler: (req, res) => {
+    logSecurityEvent(SecurityEvents.RATE_LIMIT_EXCEEDED, req.params.id || 'unknown', {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      endpoint: '/reviews'
+    });
+
+    res.status(429).json({
+      error: 'Too many reviews submitted. Please try again tomorrow.'
+    });
+  }
+});
+
 // General API rate limiter (for all routes as a safeguard)
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
