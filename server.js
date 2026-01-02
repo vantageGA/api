@@ -40,6 +40,11 @@ initEmailTransporter();
 
 const app = express();
 
+// Trust proxy - Required for Render.com and other reverse proxies
+// This allows Express to correctly identify client IPs from X-Forwarded-For header
+// Critical for rate limiting, security logging, and CORS to work properly
+app.set('trust proxy', 1);
+
 // Security middleware - must be early in the middleware stack
 app.use(helmet({
   contentSecurityPolicy: {
