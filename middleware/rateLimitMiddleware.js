@@ -92,6 +92,28 @@ export const reviewLimiter = rateLimit({
   }
 });
 
+// Rate limiter for Stripe checkout sessions
+export const checkoutLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // Limit each IP to 5 checkout attempts per hour
+  message: {
+    error: 'Too many checkout attempts from this IP, please try again after an hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logSecurityEvent(SecurityEvents.RATE_LIMIT_EXCEEDED, req.body?.email || 'unknown', {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      endpoint: '/checkout-session'
+    });
+
+    res.status(429).json({
+      error: 'Too many checkout attempts from this IP, please try again after an hour'
+    });
+  }
+});
+
 // General API rate limiter (for all routes as a safeguard)
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

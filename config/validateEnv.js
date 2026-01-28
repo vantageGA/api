@@ -21,6 +21,16 @@ const requiredEnvVars = [
   'CLOUDINARY_SECRET',
 ];
 
+// Stripe variables are optional for development but recommended
+const stripeEnvVars = [
+  'STRIPE_PUBLISHABLE_KEY',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'STRIPE_PRICE_MONTHLY',
+  'STRIPE_PRICE_ANNUAL',
+  'FRONTEND_URL',
+];
+
 // MongoDB URI can be either MONGO_URI or MONGODB_URI
 const mongoUriVars = ['MONGO_URI', 'MONGODB_URI'];
 
@@ -91,6 +101,34 @@ export const validateEnv = () => {
     new URL(process.env.RESET_PASSWORD_LOCAL_URL);
   } catch (e) {
     warnings.push('RESET_PASSWORD_LOCAL_URL is not a valid URL');
+  }
+
+  if (process.env.FRONTEND_URL) {
+    try {
+      new URL(process.env.FRONTEND_URL);
+    } catch (e) {
+      warnings.push('FRONTEND_URL is not a valid URL');
+    }
+  }
+
+  // Check for Stripe variables (optional but recommended)
+  const missingStripeVars = [];
+  for (const varName of stripeEnvVars) {
+    if (!process.env[varName]) {
+      missingStripeVars.push(varName);
+    }
+  }
+
+  if (missingStripeVars.length > 0 && process.env.NODE_ENV === 'production') {
+    console.warn('\n⚠️  Stripe integration requires these environment variables in production:');
+    missingStripeVars.forEach(varName => {
+      console.warn(`   - ${varName}`);
+    });
+  } else if (missingStripeVars.length > 0) {
+    console.warn('\n⚠️  Stripe integration is disabled (missing variables):');
+    missingStripeVars.forEach(varName => {
+      console.warn(`   - ${varName}`);
+    });
   }
 
   // Validate PORT is a number

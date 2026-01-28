@@ -1,7 +1,10 @@
+// Load environment variables FIRST
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import connectDB from './config/db.js';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
 import cloudinary from 'cloudinary';
 import helmet from 'helmet';
@@ -15,12 +18,11 @@ import imageUploadRoutes from './routes/imageUploadRoutes.js';
 import profileImageRoutes from './routes/profileImageRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import userReviewRoutes from './routes/userReviewRoutes.js';
+import stripeRoutes from './routes/stripeRoutes.js';
 import { apiLimiter } from './middleware/rateLimitMiddleware.js';
 import { validateEnv } from './config/validateEnv.js';
 import { initEmailTransporter } from './utils/emailService.js';
-
-// Load environment variables
-dotenv.config();
+import { stripeWebhookHandler } from './controllers/stripeWebhookController.js';
 
 // Validate environment variables before starting the server
 validateEnv();
@@ -97,7 +99,10 @@ app.use(mongoSanitize({
 // Apply general rate limiting to all routes
 app.use('/api', apiLimiter);
 
-//Routes
+// Stripe webhook endpoint - must use raw body parser
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+
+// Routes
 app.use('/api', confirmEmailRoutes);
 app.use('/api', contactFormRoutes);
 app.use('/api', userRoutes);
@@ -110,6 +115,8 @@ app.use('/api', userReviewRoutes);
 app.use('/api', imageUploadRoutes);
 // Profile image upload route
 app.use('/api/profileUpload', profileImageRoutes);
+// Stripe routes
+app.use('/api', stripeRoutes);
 
 //create static folder
 const __dirname = path.resolve();

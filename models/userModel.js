@@ -55,6 +55,26 @@ const userSchema = mongoose.Schema(
     emailChangeTokenExpiry: {
       type: Date,
     },
+    stripeCustomerId: {
+      type: String,
+    },
+    stripeSubscriptionId: {
+      type: String,
+    },
+    isSubscribed: {
+      type: Boolean,
+      default: false,
+    },
+    plan: {
+      type: String, // 'monthly' or 'annual'
+    },
+    currentPeriodEnd: {
+      type: Date,
+    },
+    paymentStatus: {
+      type: String, // 'active', 'failed', 'canceled'
+      default: 'active',
+    },
   },
   {
     timestamps: true,
