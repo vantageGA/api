@@ -43,7 +43,7 @@ const getAllProfiles = asyncHandler(async (req, res) => {
 
   // Build query
   let query = Profile.find(filter).select(
-    'name profileImage specialisation location rating numReviews description keywords'
+    'name profileImage specialisation location rating numReviews description keywords specialisationOne specialisationTwo specialisationThree specialisationFour'
   );
 
   // Sort by text score if search is active, otherwise sort by rating
