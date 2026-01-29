@@ -41,7 +41,10 @@ export const sendVerificationEmail = async (user, verificationToken) => {
     throw new Error('Invalid email parameters');
   }
 
-  const link = `${process.env.MAILER_LOCAL_URL.replace(/\/$/, '')}/api/verify?token=${verificationToken}`;
+  const baseUrl = process.env.NODE_ENV === 'production' 
+    ? process.env.MAILER_PRODUCTION_URL || process.env.FRONTEND_URL 
+    : process.env.MAILER_LOCAL_URL;
+  const link = `${baseUrl.replace(/\/$/, '')}/api/verify?token=${verificationToken}`;
   const transport = getTransporter();
 
   try {
@@ -80,7 +83,10 @@ export const sendPasswordResetEmail = async (user, resetToken) => {
     throw new Error('Invalid email parameters');
   }
 
-  const link = `${process.env.RESET_PASSWORD_LOCAL_URL}/reset-password/${resetToken}`;
+  const baseUrl = process.env.NODE_ENV === 'production' 
+    ? process.env.RESET_PASSWORD_PRODUCTION_URL || process.env.FRONTEND_URL 
+    : process.env.RESET_PASSWORD_LOCAL_URL;
+  const link = `${baseUrl.replace(/\/$/, '')}/reset-password/${resetToken}`;
   const transport = getTransporter();
 
   try {
@@ -153,7 +159,10 @@ export const sendEmailChangeVerification = async (newEmail, verificationToken, u
     throw new Error('Invalid email parameters');
   }
 
-  const link = `${process.env.MAILER_LOCAL_URL.replace(/\/$/, '')}/api/verify-email-change?token=${verificationToken}`;
+  const baseUrl = process.env.NODE_ENV === 'production' 
+    ? process.env.MAILER_PRODUCTION_URL || process.env.FRONTEND_URL 
+    : process.env.MAILER_LOCAL_URL;
+  const link = `${baseUrl.replace(/\/$/, '')}/api/verify-email-change?token=${verificationToken}`;
   const transport = getTransporter();
 
   try {

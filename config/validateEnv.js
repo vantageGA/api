@@ -21,6 +21,12 @@ const requiredEnvVars = [
   'CLOUDINARY_SECRET',
 ];
 
+// Optional production-specific variables
+const productionEnvVars = [
+  'MAILER_PRODUCTION_URL',
+  'RESET_PASSWORD_PRODUCTION_URL',
+];
+
 // Stripe variables are optional for development but recommended
 const stripeEnvVars = [
   'STRIPE_PUBLISHABLE_KEY',
