@@ -44,7 +44,7 @@ export const sendVerificationEmail = async (user, verificationToken) => {
   const baseUrl = process.env.NODE_ENV === 'production' 
     ? process.env.MAILER_PRODUCTION_URL || process.env.FRONTEND_URL 
     : process.env.MAILER_LOCAL_URL;
-  const link = `${baseUrl.replace(/\/$/, '')}/api/verify?token=${verificationToken}`;
+  const link = `${baseUrl.replace(/\/$/, '')}/verify-email?token=${verificationToken}`;
   const transport = getTransporter();
 
   try {
@@ -162,7 +162,7 @@ export const sendEmailChangeVerification = async (newEmail, verificationToken, u
   const baseUrl = process.env.NODE_ENV === 'production' 
     ? process.env.MAILER_PRODUCTION_URL || process.env.FRONTEND_URL 
     : process.env.MAILER_LOCAL_URL;
-  const link = `${baseUrl.replace(/\/$/, '')}/api/verify-email-change?token=${verificationToken}`;
+  const link = `${baseUrl.replace(/\/$/, '')}/verify-email-change?token=${verificationToken}`;
   const transport = getTransporter();
 
   try {
