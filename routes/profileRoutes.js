@@ -35,6 +35,15 @@ router
   .get(validate(paginationSchema, 'query'), getAllProfiles)
   .post(protect, createProfile);
 
+// Get all profiles ADMIN route (must be above /profiles/:id to avoid matching "admin" as an ID)
+router.route('/profiles/admin').get(protect, admin, validate(paginationSchema, 'query'), getAllProfilesAdmin);
+
+// Delete or update specific profile ADMIN routes
+router
+  .route('/profiles/admin/:id')
+  .delete(protect, admin, validate(profileIdSchema, 'params'), deleteProfile)
+  .put(protect, admin, validate(profileIdSchema, 'params'), updateProfileQualificationToTrue);
+
 router
   .route('/profiles/:id')
   .get(validate(profileIdSchema, 'params'), getProfileById);
@@ -59,15 +68,6 @@ router.route('/profile').get(protect, getProfile).put(protect, validate(updatePr
 
 // UPDATE number of profile clicks
 router.route('/profile-clicks').put(validate(updateClicksSchema), updateProfileClicks);
-
-// Get all profiles ADMIN route
-router.route('/profiles/admin').get(protect, admin, validate(paginationSchema, 'query'), getAllProfilesAdmin);
-
-// Delete or update specific profile ADMIN routes
-router
-  .route('/profiles/admin/:id')
-  .delete(protect, admin, validate(profileIdSchema, 'params'), deleteProfile)
-  .put(protect, admin, validate(profileIdSchema, 'params'), updateProfileQualificationToTrue);
 
 // Delete a single review route
 // 🔴 FRONTEND IMPACT: Route changed from DELETE /profile/review/admin/:id to DELETE /profiles/:id/reviews
