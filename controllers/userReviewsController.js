@@ -1,9 +1,21 @@
 import asyncHandler from 'express-async-handler';
 import generateToken, {
   generateEmailVerificationToken,
+  generatePasswordResetToken,
 } from '../utils/generateToken.js';
 import UserReviewer from '../models/userReviewerModel.js';
 import nodemailer from 'nodemailer';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import {
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from '../validators/userValidator.js';
+import {
+  sendPasswordResetEmail,
+  sendPasswordChangedEmail,
+} from '../services/emailService.js';
+import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
 
 // @description: Get All the user REVIEWS
 // @route: GET /api/reviewers/admin
@@ -46,6 +58,19 @@ const authUserReview = asyncHandler(async (req, res) => {
   const { email, password, userProfileId } = req.body;
   const user = await UserReviewer.findOne({ email: email });
   if (user && (await user.matchPassword(password))) {
+    if (!user.isConfirmed) {
+      logSecurityEvent(SecurityEvents.LOGIN_FAILED, user._id, {
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        reason: 'Account not confirmed',
+      });
+      res.status(401);
+      throw new Error('Please verify your email before logging in');
+    }
+    logSecurityEvent(SecurityEvents.LOGIN_SUCCESS, user._id, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+    });
     res.json({
       _id: user._id,
       name: user.name,
@@ -54,6 +79,11 @@ const authUserReview = asyncHandler(async (req, res) => {
       token: generateToken(user._id),
     });
   } else {
+    logSecurityEvent(SecurityEvents.LOGIN_FAILED, email, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      reason: 'Invalid credentials',
+    });
     res.status(401);
     throw new Error('Invalid user name or password.');
   }
@@ -67,6 +97,11 @@ const registerUserReviewer = asyncHandler(async (req, res) => {
   const userExists = await UserReviewer.findOne({ email: email });
 
   if (userExists) {
+    logSecurityEvent(SecurityEvents.REGISTRATION_FAILED, email, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      reason: 'Email already exists',
+    });
     res.status(400);
     throw new Error('User already exists');
   }
@@ -110,14 +145,15 @@ const registerUserReviewer = asyncHandler(async (req, res) => {
       userReviewer._id,
     )}`;
 
-    // send mail with defined transport object
-    let info = await transporter.sendMail({
-      from: '"Body Vantage" <info@bodyvantage.co.uk>', // sender address
-      to: `${userReviewer.email}`, // list of receivers
-      bcc: 'info@bodyvantage.co.uk',
-      subject: 'Body Vantage Reviewer Registration', // Subject line
-      text: 'Body Vantage Reviewer Registration', // plain text body
-      html: `
+    try {
+      // send mail with defined transport object
+      let info = await transporter.sendMail({
+        from: '"Body Vantage" <info@bodyvantage.co.uk>', // sender address
+        to: `${userReviewer.email}`, // list of receivers
+        bcc: 'info@bodyvantage.co.uk',
+        subject: 'Body Vantage Reviewer Registration', // Subject line
+        text: 'Body Vantage Reviewer Registration', // plain text body
+        html: `
   <h1>Hi ${userReviewer.name}</h1>
   <p>You have successfully registered to write a review for a client with Body Vantage</p>
   <p>Please Click on the link to verify your email.</p>
@@ -128,18 +164,145 @@ const registerUserReviewer = asyncHandler(async (req, res) => {
       
    
   `, // html body
+      });
+
+      console.log('Message sent: %s', info.messageId);
+      // Message sent: <b658f8ca-6296-ccf4-8306-87d57a0b4321@example.com>
+
+      // Preview only available when sending through an Ethereal account
+      console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
+      // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
+    } catch (emailError) {
+      logError('Failed to send reviewer verification email', emailError, {
+        userId: userReviewer._id,
+        email: userReviewer.email,
+      });
+    }
+
+    logSecurityEvent(SecurityEvents.REGISTRATION_SUCCESS, userReviewer._id, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
     });
-
-    console.log('Message sent: %s', info.messageId);
-    // Message sent: <b658f8ca-6296-ccf4-8306-87d57a0b4321@example.com>
-
-    // Preview only available when sending through an Ethereal account
-    console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
-    // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
   } else {
     res.status(400);
     throw new Error('Invalid userReviewer data');
   }
+});
+
+// @description: Request password reset for reviewer
+// @route: POST /api/reviewer-forgot-password
+// @access: Public
+const reviewerForgotPassword = asyncHandler(async (req, res) => {
+  const { error, value } = forgotPasswordSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false,
+  });
+  if (error) {
+    res.status(400);
+    throw new Error(error.details[0].message);
+  }
+
+  const { email } = value;
+  const reviewer = await UserReviewer.findOne({ email });
+
+  if (reviewer) {
+    try {
+      const resetToken = generatePasswordResetToken(reviewer._id);
+      reviewer.createPasswordResetToken(resetToken);
+      reviewer.resetPasswordLastAttempt = Date.now();
+      await reviewer.save();
+
+      await sendPasswordResetEmail(reviewer, resetToken);
+      logSecurityEvent(SecurityEvents.PASSWORD_RESET_REQUESTED, reviewer._id, {
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+    } catch (emailError) {
+      logError('Failed to send reviewer password reset email', emailError, {
+        userId: reviewer._id,
+        email: reviewer.email,
+      });
+    }
+  }
+
+  res.status(200).json({
+    message: 'If that email exists in our system, a password reset link has been sent.',
+  });
+});
+
+// @description: Update reviewer password using reset token
+// @route: PUT /api/reviewer-update-password
+// @access: Public
+const updateReviewerPassword = asyncHandler(async (req, res) => {
+  const { error, value } = resetPasswordSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false,
+  });
+  if (error) {
+    res.status(400);
+    throw new Error(error.details[0].message);
+  }
+
+  const { resetPasswordToken, password } = value;
+
+  let decodedToken;
+  try {
+    decodedToken = jwt.verify(resetPasswordToken, process.env.JWT_SECRET);
+    if (decodedToken.type !== 'password_reset') {
+      throw new Error('Invalid token type');
+    }
+  } catch (err) {
+    logSecurityEvent(SecurityEvents.PASSWORD_RESET_FAILED, 'unknown', {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      reason: 'Invalid or expired token',
+    });
+    res.status(401);
+    throw new Error('Invalid or expired reset token');
+  }
+
+  const hashedToken = crypto
+    .createHash('sha256')
+    .update(resetPasswordToken)
+    .digest('hex');
+
+  const reviewer = await UserReviewer.findOne({
+    _id: decodedToken.id,
+    resetPasswordToken: hashedToken,
+    resetPasswordTokenExpiry: { $gt: Date.now() },
+  });
+
+  if (!reviewer) {
+    logSecurityEvent(SecurityEvents.PASSWORD_RESET_FAILED, decodedToken.id, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      reason: 'Token not found or expired',
+    });
+    res.status(404);
+    throw new Error('Invalid or expired reset token');
+  }
+
+  reviewer.password = password;
+  reviewer.clearPasswordResetToken();
+  await reviewer.save();
+
+  try {
+    await sendPasswordChangedEmail(reviewer);
+  } catch (emailError) {
+    // Password change succeeded; email is secondary
+    logError('Failed to send reviewer password changed email', emailError, {
+      userId: reviewer._id,
+    });
+  }
+
+  logSecurityEvent(SecurityEvents.PASSWORD_RESET_COMPLETED, reviewer._id, {
+    ip: req.ip,
+    userAgent: req.get('user-agent'),
+  });
+
+  res.status(200).json({
+    message: 'Password successfully updated',
+  });
 });
 
 export {
@@ -148,4 +311,6 @@ export {
   deleteReviewer,
   authUserReview,
   registerUserReviewer,
+  reviewerForgotPassword,
+  updateReviewerPassword,
 };

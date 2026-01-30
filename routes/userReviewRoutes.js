@@ -5,6 +5,8 @@ import {
   getAllUsersReviews,
   getAllUsersReviewers,
   deleteReviewer,
+  reviewerForgotPassword,
+  updateReviewerPassword,
 } from '../controllers/userReviewsController.js';
 
 import { protect, admin } from '../middleware/authMiddleware.js';
@@ -16,5 +18,7 @@ router.get('/reviewer/public/:id', getAllUsersReviewers);
 router.delete('/reviewer/admin/:id', protect, admin, deleteReviewer);
 router.post('/users-review/login', authUserReview);
 router.post('/users-review', registerUserReviewer);
+router.post('/reviewer-forgot-password', reviewerForgotPassword);
+router.put('/reviewer-update-password', updateReviewerPassword);
 
 export default router;
