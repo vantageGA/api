@@ -1,0 +1,352 @@
+# AGENTS.md
+
+## Project Context (start with @docs/)
+
+### docs/README.md
+- API docs index with entry points for backend work.
+- Highlights: ENV configuration and security improvements.
+- Keyword search migration docs: architecture, fix summary, migration steps.
+
+### docs/ENV_CONFIGURATION.md
+- Required env vars: `NODE_ENV`, `PORT`, `MONGO_URI` (or `MONGODB_URI`), `JWT_SECRET`, mailer settings, Cloudinary settings, reset URL.
+- Startup validation enforces required vars; warnings and blocking conditions vary by `NODE_ENV`.
+- Production guidance: strong `JWT_SECRET` (32+ chars), HTTPS URLs, production credentials.
+- Email features: verification, password reset, email change, password change notification.
+- Mongo URI validation (must be `mongodb://` or `mongodb+srv://`).
+- Last updated: 2025-12-31.
+
+### docs/SECURITY_IMPROVEMENTS.md
+- Fixes: account enumeration, input validation, password reset token hashing + expiry, token type separation, rate limiting, email change verification, TLS enforcement.
+- New features: verification endpoints, audit logging to `logs/`, environment validation.
+- Updated files: `controllers/userController.js`, `models/userModel.js`, `routes/userRoutes.js`, `server.js`, `utils/generateToken.js`.
+- Added dependencies: `joi`, `express-rate-limit`, `winston`.
+- Includes testing checklist and breaking changes for frontend (login/registration/password reset flow).
+
+### docs/ROUTES.md
+- Full API route index with method, auth, and handler mapping.
+
+### docs/KEYWORD_SEARCH_ARCHITECTURE.md
+- Replaces keyword permutation string with normalized `keywords` array.
+- Adds MongoDB text index with weighted fields (name, keywords, specialisation, location, description).
+- Search uses `$text` with relevance scoring and fallback sorting.
+- Syncs `keywords` from individual keyword fields on profile update.
+- Migration script: `api/scripts/migrateKeywords.js` (transactional, idempotent).
+- API usage examples for search and filters.
+
+### docs/KEYWORD_SEARCH_FIX_SUMMARY.md
+- Root cause: frontend permutations created 1,378+ char `keyWordSearch` string, causing 400 errors.
+- Fix summary: remove permutations, add `keywords` array, `$text` search, migration script.
+- File changes across backend, frontend, and docs; includes performance impact and rollback plan.
+
+### docs/MIGRATION_STEPS.md
+- Quick start migration: optional backup, run `node api/scripts/migrateKeywords.js`, verify indexes and profile updates.
+- Validation checklist for post-migration.
+- Troubleshooting and rollback guidance.
+
+## Project Map (entrypoints, modules, and flow)
+
+### Entrypoints
+- `server.js`: Express app bootstrap, env validation, DB connect, security middleware, routes, error handling, health check, optional static frontend.
+- `config/db.js`: MongoDB connection setup (imported by `server.js`).
+- `config/validateEnv.js`: Environment variable validation (called at startup).
+
+### Routes -> Controllers
+- `routes/userRoutes.js` -> `controllers/userController.js`
+- `routes/confirmEmailRoutes.js` -> `controllers/confirmEmailController.js`
+- `routes/contactFormRoutes.js` -> `controllers/contactFormController.js`
+- `routes/profileRoutes.js` -> `controllers/profileController.js`
+- `routes/userReviewRoutes.js` -> `controllers/userReviewsController.js`
+- `routes/imageUploadRoutes.js` -> `controllers/imageUploadController.js`
+- `routes/profileImageRoutes.js` -> `controllers/imageUploadController.js` (profile upload path)
+- `routes/stripeRoutes.js` -> `controllers/stripeWebhookController.js` (webhook handled in `server.js` with raw body)
+
+### Models (Mongoose)
+- `models/userModel.js`
+- `models/profileModel.js`
+- `models/userReviewerModel.js`
+- `models/imageUploadModal.js`
+- `models/profileImageModel.js`
+
+### Middleware
+- `middleware/authMiddleware.js`: auth gate/role protection.
+- `middleware/validationMiddleware.js`: request validation wiring.
+- `middleware/rateLimitMiddleware.js`: general + endpoint rate limiters.
+- `middleware/errorMiddleware.js`: notFound + error handler.
+
+### Services / Utils
+- `services/emailService.js`: email orchestration.
+- `services/stripeService.js`: Stripe integration helpers.
+- `utils/emailService.js`: transporter init + low-level email helpers.
+- `utils/generateToken.js`: JWT helpers (token types).
+- `utils/profileHelpers.js`: keyword sync helpers for profiles.
+- `utils/auditLogger.js`: security event logging to `logs/`.
+
+### Scripts
+- `scripts/migrateKeywords.js`: keywords migration and text index verification.
+
+## Dependencies (runtime highlights)
+- Server: `express`, `cors`, `helmet`, `express-mongo-sanitize`, `express-rate-limit`, `dotenv`.
+- Auth/Security: `jsonwebtoken`, `bcryptjs`, `validator`, `joi`.
+- Data: `mongoose`.
+- Email/Media: `nodemailer`, `cloudinary`, `multer`.
+- Payments/Logs: `stripe`, `winston`.
+
+## Common Workflows (commands)
+- Install: `npm install`
+- Dev server (nodemon): `npm run server`
+- Start (node): `npm start`
+- Tests: `npm test` (currently placeholder; exits with error)
+- Keyword migration: `node scripts/migrateKeywords.js`
+
+## Project Skills (from .git/skills/)
+
+### backend-developer
+- Description: Node.js/Express backend architecture, security, performance, testing, observability, deployment.
+- Path: `.git/skills/backend-developer/SKILL.md`
+- Notes: Emphasizes layered architecture, validation, centralized error handling, rate limiting, and structured review output.
+
+### mongo-db-developer
+- Description: MongoDB schema design, access control, security, performance, scaling, ops best practices.
+- Path: `.git/skills/mongo-db-developer/SKILL.md`
+- Notes: Focus on tenant isolation strategies, indexing, transactions, and backup/monitoring guidance.
+
+### pr-reviewer
+- Description: Structured PR review (functionality, style, security, tests, maintainability).
+- Path: `.git/skills/pr-reviewer/SKILL.md`
+- Notes: Requires severity-ordered issues, file/line references, and clear approval recommendation.
+
+### prd-writer
+- Description: PRD generator with clarifying questions and structured output saved to `tasks/`.
+- Path: `.git/skills/prd-writer/SKILL.md`
+- Notes: Ask 3-5 critical questions with lettered options; produce PRD sections and save to `tasks/prd-[feature].md`.
+
+## Routes Index (HTTP + auth)
+
+### Auth & Users
+- `POST /api/users/login` -> `authUser` (public, login rate limit)
+- `POST /api/users` -> `registerUser` (public, registration rate limit)
+- `GET /api/users` -> `getAllUsersProfile` (admin)
+- `GET /api/users/profile` -> `getUserProfile` (auth)
+- `PUT /api/users/profile` -> `updateUserProfile` (auth)
+- `GET /api/user/profile/:id` -> `getUserProfileById` (public)
+- `GET /api/users/:id` -> `getUserProfileById` (admin)
+- `DELETE /api/users/:id` -> `deleteUser` (admin)
+- `PUT /api/user/profile/:id` -> `updateIsAdmin` (admin)
+- `POST /api/user-forgot-password` -> `userForgotPassword` (public, rate limit)
+- `PUT /api/user-update-password` -> `updateUserProfilePassword` (public)
+- `GET /api/verify` -> `verifyEmail` (public)
+- `GET /api/verify-email-change` -> `verifyEmailChange` (public)
+
+### Reviewer Accounts
+- `POST /api/users-review/login` -> `authUserReview` (public)
+- `POST /api/users-review` -> `registerUserReviewer` (public)
+- `GET /api/reviewers/admin` -> `getAllUsersReviews` (admin)
+- `GET /api/reviewer/public/:id` -> `getAllUsersReviewers` (public)
+- `DELETE /api/reviewer/admin/:id` -> `deleteReviewer` (admin)
+- `POST /api/reviewer-forgot-password` -> `reviewerForgotPassword` (public)
+- `PUT /api/reviewer-update-password` -> `updateReviewerPassword` (public)
+
+### Profiles
+- `GET /api/profiles` -> `getAllProfiles` (public, pagination + search)
+- `POST /api/profiles` -> `createProfile` (auth)
+- `GET /api/profiles/:id` -> `getProfileById` (public)
+- `GET /api/profile/:id` -> `getProfileById` (public, backward compat)
+- `GET /api/profile` -> `getProfile` (auth)
+- `PUT /api/profile` -> `updateProfile` (auth)
+- `PUT /api/profile-clicks` -> `updateProfileClicks` (public)
+- `POST /api/profiles/:id/reviews` -> `createProfileReview` (auth, review rate limit)
+- `DELETE /api/profiles/:id/reviews` -> `deleteReview` (admin)
+- `GET /api/profiles/admin` -> `getAllProfilesAdmin` (admin)
+- `DELETE /api/profiles/admin/:id` -> `deleteProfile` (admin)
+- `PUT /api/profiles/admin/:id` -> `updateProfileQualificationToTrue` (admin)
+- `GET /api/profile-images` -> `getAllProfileImages` (auth)
+- `GET /api/profile-images-public/:id` -> `getAllProfileImagesPublic` (public)
+
+### Email Verification (legacy)
+- `GET /api/verify?token=...` -> `updateConfirmEmail` (public, legacy compatibility)
+- `GET /api/verify/token=:id` -> `updateConfirmEmail` (public)
+- `GET /api/verifyReviewer?token=...` -> `updateConfirmReviewerEmail` (public)
+- `GET /api/verifyReviewer/token=:id` -> `updateConfirmReviewerEmail` (public)
+
+### Contact Form
+- `POST /api/send` -> `sendContactForm` (public)
+
+### Media Uploads
+- `POST /api/userProfileUpload` -> `userProfileImageUpload` (auth, multer)
+- `DELETE /api/profile-image/:id` -> `deleteProfileImage` (auth)
+- `POST /api/profileUpload` -> profile image upload (auth, inline controller in route)
+
+### Stripe
+- `POST /api/stripe/webhook` -> `stripeWebhookHandler` (public, raw body)
+- `POST /api/checkout-session` -> `createCheckoutSession` (public, rate limit)
+- `POST /api/create-subscription` -> `createSubscription` (auth)
+
+## Data Flow (high-level)
+
+### Request lifecycle
+- `server.js`: load env -> validate -> connect DB -> init email -> apply security + CORS + parsers + sanitize -> rate limit -> routes -> error handlers.
+
+### Auth flow
+- Login: `POST /api/users/login` -> JWT returned -> `Authorization: Bearer <token>` -> `protect` middleware -> `req.user`.
+- Email verification: registration sends verification token -> `GET /api/verify?token=...` sets `isConfirmed`.
+- Password reset: `POST /api/user-forgot-password` -> email with token -> `PUT /api/user-update-password` validates token + updates password.
+
+### Profile flow
+- Create: `POST /api/profiles` creates base profile.
+- Update: `PUT /api/profile` updates whitelisted fields -> `syncKeywordsArray` -> save.
+- Search: `GET /api/profiles?search=...` uses Mongo `$text` index and weighted relevance.
+- Reviews: reviewer auth + verified -> `POST /api/profiles/:id/reviews` -> stats recomputed.
+
+### Stripe flow
+- Checkout: `POST /api/checkout-session` creates user if needed, sends verification email, returns Stripe hosted checkout URL.
+- Webhook: `POST /api/stripe/webhook` validates signature, updates subscription status on `checkout.session.completed`, `invoice.*`, `customer.subscription.*`.
+
+## Where To Look First
+- Auth + user lifecycle: `routes/userRoutes.js`, `controllers/userController.js`, `models/userModel.js`, `utils/generateToken.js`.
+- Reviewer accounts: `routes/userReviewRoutes.js`, `controllers/userReviewsController.js`, `models/userReviewerModel.js`.
+- Profiles + search: `routes/profileRoutes.js`, `controllers/profileController.js`, `models/profileModel.js`, `utils/profileHelpers.js`.
+- Email sending: `services/emailService.js`, `utils/emailService.js`.
+- Stripe: `routes/stripeRoutes.js`, `controllers/stripeWebhookController.js`, `services/stripeService.js`, `config/stripe.js`.
+- Security middleware + logging: `middleware/authMiddleware.js`, `middleware/rateLimitMiddleware.js`, `middleware/errorMiddleware.js`, `utils/auditLogger.js`.
+- Env validation: `config/validateEnv.js`.
+
+## Data Models (MongoDB)
+
+### User (`models/userModel.js`)
+- Identity: `name`, `email` (unique), `password` (bcrypt).
+- Roles/status: `isAdmin`, `isConfirmed`.
+- Media: `profileImage`, `cloudinaryId`.
+- Password reset: `resetPasswordToken`, `resetPasswordTokenExpiry`, `resetPasswordAttempts`, `resetPasswordLastAttempt`.
+- Email change flow: `pendingEmail`, `emailChangeToken`, `emailChangeTokenExpiry`.
+- Stripe: `stripeCustomerId`, `stripeSubscriptionId`, `isSubscribed`, `plan`, `currentPeriodEnd`, `paymentStatus`.
+
+### Profile (`models/profileModel.js`)
+- Owner: `user` (unique per user).
+- Public fields: `name`, `email` (sparse unique), `profileImage`, `description`, `specialisation`, `location`, `telephoneNumber`, socials.
+- Keywords: `keywords` array (max 5) + legacy `keyWordSearchOne..Five`.
+- Specialisation fields: `specialisationOne..Four`.
+- Reviews: embedded `reviews` (rating/comment/showName/userProfileId/hasAccepted).
+- Stats: `rating`, `numReviews`, `profileClickCounter`.
+- Indexes: text search index + filters/sorting indexes.
+
+### UserReviewer (`models/userReviewerModel.js`)
+- Identity: `name`, `email` (unique), `password`.
+- Status: `isConfirmed`, `hasSubmittedReview`.
+- Password reset: `resetPasswordToken`, `resetPasswordTokenExpiry`, `resetPasswordAttempts`, `resetPasswordLastAttempt`.
+
+### Media Models
+- `UserProfileImages` (`models/imageUploadModal.js`): per-user account images (`avatar`, `cloudinaryId`).
+- `ProfileImages` (`models/profileImageModel.js`): profile gallery images (`avatar`, `cloudinaryId`).
+
+## Test Checklist (quick, manual)
+
+### Auth & Users
+- Register -> verification email sent -> `GET /api/verify?token=...` confirms -> login works.
+- Login rejects unverified users with 401 + message.
+- Password reset: request -> email -> reset token -> password updated.
+- Email change: update profile with new email -> verification email -> `GET /api/verify-email-change?token=...` updates email.
+- Admin: list users, update admin flag, delete user (checks cascading deletes + Cloudinary cleanup).
+
+### Reviewer Accounts
+- Register reviewer -> verification email -> login.
+- Submit review blocked if reviewer email not confirmed.
+- Reviewer password reset request + confirm.
+
+### Profiles & Search
+- Create profile on first auth -> fetch `/api/profile`.
+- Update profile fields -> keywords auto-sync -> search returns relevant matches.
+- Reviews: create + delete, ratings recalc, acceptConditions enforced.
+- Profile clicks increments by 1 server-side.
+
+### Media Uploads
+- Upload user profile image (`/api/userProfileUpload`) -> image stored + Cloudinary URL.
+- Upload profile image (`/api/profileUpload`) -> profile updated.
+- Delete profile image -> Cloudinary cleanup.
+
+### Stripe
+- Checkout session -> user created if needed -> verification email sent.
+- Webhook: `checkout.session.completed` sets subscription + plan + period end.
+- `invoice.payment_failed` sets `paymentStatus=failed`; subscription deleted sets `isSubscribed=false`.
+
+## Deployment / Runbook
+- Ensure `.env` includes required vars (see `docs/ENV_CONFIGURATION.md`); use strong `JWT_SECRET` for production.
+- Start dev server: `npm run server` (nodemon).
+- Start prod server: `npm start`.
+- Optional monorepo serving: set `SERVE_FRONTEND=true` to serve `client/dist`.
+- Stripe webhook: keep `/api/stripe/webhook` before JSON body parser (already configured) and set `STRIPE_WEBHOOK_SECRET`.
+- Health check: `GET /` returns status, environment, timestamp.
+- Logs: security events in `logs/`, errors via `utils/auditLogger.js`.
+
+## Security Checklist
+- CORS: ensure `FRONTEND_URL`, `RESET_PASSWORD_LOCAL_URL`, `MAILER_LOCAL_URL` are set; only approved origins should pass.
+- Rate limits: login/registration/reset + general `/api` limiter enabled; tune for production traffic.
+- Headers: `helmet` enabled with CSP + HSTS; review CSP when adding new assets.
+- Input validation: Joi schemas for auth + profile updates; keep validators in sync with models.
+- Secrets: rotate `JWT_SECRET`, SMTP credentials, Cloudinary keys, Stripe secrets; never commit `.env`.
+- Data protection: `express-mongo-sanitize` enabled; avoid direct use of user-provided query fragments.
+- Email flows: verify token types (`email_verification`, `password_reset`, `email_change`) before trust.
+
+## Troubleshooting
+- Server won’t start: check `.env` required variables and `validateEnv` output.
+- Mongo connection fails: verify `MONGO_URI`/`MONGODB_URI` format and network access.
+- CORS errors: confirm request origin is in allowed origins list.
+- Password reset fails: ensure token type is `password_reset` and not expired (15 minutes).
+- Stripe webhooks fail: verify raw body is enabled and `STRIPE_WEBHOOK_SECRET` matches.
+- Upload fails: confirm file type is jpg/jpeg/png and Cloudinary credentials are set.
+- Search returns empty: ensure `profile_search_index` exists and `keywords` array is populated.
+
+## Changelog Stub
+- 2026-02-06: Added project map, routes index, data flows, model summaries, test checklist, runbook, and security/troubleshooting notes.
+
+## Request/Response Examples (quick sanity)
+- Login: `POST /api/users/login` -> `{ email, password }` => `{ _id, name, email, isAdmin, token }`.
+- Register: `POST /api/users` -> `{ name, email, password }` => `{ _id, name, email, isAdmin, isConfirmed, token, message }`.
+- Get profile: `GET /api/profile` (auth) => profile object or `null`.
+- Update profile: `PUT /api/profile` (auth) -> profile fields => updated profile object.
+- Search profiles: `GET /api/profiles?search=fitness&page=1&limit=20` => `{ profiles, page, pages, total, hasSearch }`.
+- Create review: `POST /api/profiles/:id/reviews` (auth) -> `{ rating, comment, showName, userProfileId, acceptConditions }`.
+
+## Migration History (known)
+- Keyword search migration: `scripts/migrateKeywords.js` (see `docs/KEYWORD_SEARCH_*`).
+
+## Dependency Update Policy (suggested)
+- Monthly: `npm audit` + update minor/patch versions.
+- Quarterly: review major updates (Express/Mongoose/Stripe) with staging tests.
+- Security hotfixes: apply immediately with smoke tests (auth, profile, Stripe, upload).
+
+## Observability Notes
+- Audit log: `utils/auditLogger.js` writes to `logs/`.
+- Server log: stdout/stderr; consider log rotation in production.
+- Add request correlation ID middleware if tracing is needed.
+
+## Environment Matrix (key flags)
+- `NODE_ENV`: `development` vs `production` affects validation strictness and error logging.
+- `SERVE_FRONTEND=true`: serves `client/dist` if present.
+- `STRIPE_WEBHOOK_SECRET`: required for webhook verification.
+
+## Data Privacy / PII Touchpoints
+- User email, password (hashed), and profile data stored in MongoDB.
+- Emails sent via SMTP (verification, reset, notifications).
+- Cloudinary stores media; Cloudinary IDs saved in DB.
+
+## Known TODOs / Gaps
+- Automated tests are not wired (`npm test` placeholder).
+- Consider centralizing contact form email transport (currently in controller).
+
+## Permissions Matrix (public/auth/admin)
+- Public: login, registration, email verification, password reset, profile listing/search, public profile fetch, public profile images.
+- Auth: own profile get/update, profile creation, review creation, image uploads, create subscription.
+- Admin: list users, delete users, update admin flag, profile admin list/delete/verify, review delete, reviewer admin delete/list.
+
+## Data Retention / Logging Policy (suggested)
+- Audit logs: keep 90 days (rotate + archive), redact tokens and passwords.
+- Error logs: keep 30-90 days depending on storage; include request ID if added.
+- Stripe events: store minimal event metadata if persistence is needed (id, type, timestamp).
+- Cloudinary: remove images when user/profile is deleted (already handled in delete flow).
+
+## Safe Refactor Checklist
+- Update validators + models together when changing request shape.
+- Preserve backward compatibility for public endpoints or add clear migration notes.
+- Keep rate limits on auth-related endpoints.
+- Update docs in `docs/` and `AGENTS.md` for new/changed routes.
+- Add manual test notes for any new flow (auth, profile, Stripe, uploads).
