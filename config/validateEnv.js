@@ -37,6 +37,10 @@ const stripeEnvVars = [
   'FRONTEND_URL',
 ];
 
+const booleanFlagEnvVars = [
+  'ONBOARDING_TUTORIAL_ENFORCED',
+];
+
 // MongoDB URI can be either MONGO_URI or MONGODB_URI
 const mongoUriVars = ['MONGO_URI', 'MONGODB_URI'];
 
@@ -135,6 +139,14 @@ export const validateEnv = () => {
     missingStripeVars.forEach(varName => {
       console.warn(`   - ${varName}`);
     });
+  }
+
+  // Validate optional boolean feature flags
+  for (const varName of booleanFlagEnvVars) {
+    const value = process.env[varName];
+    if (value !== undefined && value !== 'true' && value !== 'false') {
+      warnings.push(`${varName} should be "true" or "false" (received: ${value})`);
+    }
   }
 
   // Validate PORT is a number

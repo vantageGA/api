@@ -4,6 +4,7 @@ import ProfileImages from '../models/profileImageModel.js';
 import UserReviewer from '../models/userReviewerModel.js';
 import User from '../models/userModel.js';
 import { sendReviewNotification } from '../utils/emailService.js';
+import { logSecurityEvent, SecurityEvents } from '../utils/auditLogger.js';
 import {
   updateProfileStats,
   syncKeywordsArray,
@@ -11,6 +12,14 @@ import {
   ALLOWED_UPDATE_FIELDS,
 } from '../utils/profileHelpers.js';
 import { validateObjectId } from '../validators/commonValidators.js';
+
+const isOnboardingTutorialEnforced = () => {
+  if (process.env.ONBOARDING_TUTORIAL_ENFORCED === undefined) {
+    return process.env.NODE_ENV === 'production';
+  }
+
+  return process.env.ONBOARDING_TUTORIAL_ENFORCED === 'true';
+};
 
 // @description: Get All the Profiles with pagination and filtering
 // @route: GET /api/profiles
@@ -228,6 +237,24 @@ const updateProfile = asyncHandler(async (req, res) => {
     throw new Error('Profile not found');
   }
 
+  const onboardingTutorial = profile.onboardingTutorial || {};
+  const tutorialIsRequired = onboardingTutorial.required !== false;
+  const tutorialIsCompleted = onboardingTutorial.isCompleted === true;
+
+  if (isOnboardingTutorialEnforced() && tutorialIsRequired && !tutorialIsCompleted) {
+    logSecurityEvent(SecurityEvents.ONBOARDING_TUTORIAL_BLOCKED_SUBMIT, req.user._id, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      profileId: profile._id,
+    });
+
+    return res.status(403).json({
+      success: false,
+      message: 'Onboarding tutorial interaction is required before profile submission.',
+      code: 'ONBOARDING_TUTORIAL_REQUIRED',
+    });
+  }
+
   // Only update allowed fields (whitelist approach prevents mass assignment)
   ALLOWED_UPDATE_FIELDS.forEach((field) => {
     if (req.body[field] !== undefined) {
@@ -241,6 +268,115 @@ const updateProfile = asyncHandler(async (req, res) => {
 
   const updatedProfile = await profile.save();
   res.json(updatedProfile);
+});
+
+// @description: Update onboarding tutorial status for current user profile
+// @route: PATCH /api/profile/onboarding-tutorial
+// @access: PRIVATE
+const updateOnboardingTutorialStatus = asyncHandler(async (req, res) => {
+  const profile = await Profile.findOne({ user: req.user._id });
+
+  if (!profile) {
+    res.status(404);
+    throw new Error('Profile not found');
+  }
+
+  if (!profile.onboardingTutorial) {
+    profile.onboardingTutorial = {};
+  }
+
+  if (profile.onboardingTutorial.required === undefined) {
+    profile.onboardingTutorial.required = true;
+  }
+  if (profile.onboardingTutorial.hasInteracted === undefined) {
+    profile.onboardingTutorial.hasInteracted = false;
+  }
+  if (profile.onboardingTutorial.watchProgressPercent === undefined) {
+    profile.onboardingTutorial.watchProgressPercent = 0;
+  }
+  if (profile.onboardingTutorial.manualAcknowledged === undefined) {
+    profile.onboardingTutorial.manualAcknowledged = false;
+  }
+  if (profile.onboardingTutorial.completionThresholdPercent === undefined) {
+    profile.onboardingTutorial.completionThresholdPercent = 90;
+  }
+  if (profile.onboardingTutorial.isCompleted === undefined) {
+    profile.onboardingTutorial.isCompleted = false;
+  }
+  if (profile.onboardingTutorial.version === undefined) {
+    profile.onboardingTutorial.version = 'v1';
+  }
+
+  const previousIsCompleted = profile.onboardingTutorial.isCompleted === true;
+  const now = new Date();
+
+  if (req.body.hasInteracted !== undefined) {
+    profile.onboardingTutorial.hasInteracted = req.body.hasInteracted;
+  }
+
+  if (req.body.interactionType !== undefined) {
+    profile.onboardingTutorial.interactionType = req.body.interactionType;
+    profile.onboardingTutorial.hasInteracted = true;
+  }
+
+  if (req.body.watchProgressPercent !== undefined) {
+    profile.onboardingTutorial.watchProgressPercent = req.body.watchProgressPercent;
+  }
+
+  if (req.body.manualAcknowledged !== undefined) {
+    profile.onboardingTutorial.manualAcknowledged = req.body.manualAcknowledged;
+  }
+
+  const hasProgress = (profile.onboardingTutorial.watchProgressPercent || 0) > 0;
+  if (
+    profile.onboardingTutorial.hasInteracted === true ||
+    hasProgress ||
+    profile.onboardingTutorial.manualAcknowledged === true
+  ) {
+    profile.onboardingTutorial.hasInteracted = true;
+    if (!profile.onboardingTutorial.firstInteractedAt) {
+      profile.onboardingTutorial.firstInteractedAt = now;
+    }
+  }
+
+  const completionThreshold =
+    profile.onboardingTutorial.completionThresholdPercent || 90;
+  const completionSignal =
+    (profile.onboardingTutorial.watchProgressPercent || 0) >= completionThreshold ||
+    profile.onboardingTutorial.manualAcknowledged === true;
+
+  profile.onboardingTutorial.isCompleted = previousIsCompleted || completionSignal;
+
+  if (profile.onboardingTutorial.isCompleted && !previousIsCompleted) {
+    profile.onboardingTutorial.completedAt = now;
+
+    if (!req.body.interactionType) {
+      profile.onboardingTutorial.interactionType =
+        profile.onboardingTutorial.manualAcknowledged === true
+          ? 'manual_ack'
+          : 'completed';
+    }
+  }
+
+  const updatedProfile = await profile.save();
+
+  if (!previousIsCompleted && updatedProfile.onboardingTutorial?.isCompleted) {
+    logSecurityEvent(SecurityEvents.ONBOARDING_TUTORIAL_COMPLETED, req.user._id, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      profileId: updatedProfile._id,
+      completionMethod:
+        updatedProfile.onboardingTutorial.manualAcknowledged === true
+          ? 'manual_ack'
+          : 'watch_progress',
+      watchProgressPercent: updatedProfile.onboardingTutorial.watchProgressPercent,
+    });
+  }
+
+  res.json({
+    success: true,
+    onboardingTutorial: updatedProfile.onboardingTutorial,
+  });
 });
 
 // @description: Delete a single profile
@@ -508,4 +644,5 @@ export {
   updateProfileClicks,
   getAllProfileImages,
   getAllProfileImagesPublic,
+  updateOnboardingTutorialStatus,
 };

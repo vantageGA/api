@@ -152,6 +152,17 @@ export const updateProfileSchema = Joi.object({
   'object.min': 'At least one field must be provided for update',
 });
 
+export const updateOnboardingTutorialSchema = Joi.object({
+  hasInteracted: Joi.boolean(),
+  interactionType: Joi.string()
+    .valid('play_started', 'progress', 'completed', 'manual_ack'),
+  completedAt: Joi.date().iso().allow(null),
+  watchProgressPercent: Joi.number().min(0).max(100),
+  manualAcknowledged: Joi.boolean(),
+}).min(1).messages({
+  'object.min': 'At least one onboarding tutorial field must be provided',
+});
+
 export const deleteReviewSchema = Joi.object({
   reviewId: Joi.string()
     .custom(objectIdValidator)

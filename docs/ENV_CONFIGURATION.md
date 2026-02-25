@@ -107,6 +107,7 @@ RESET_PASSWORD_LOCAL_URL=https://yourdomain.com  # HTTPS required!
 | Variable | Description | Default | Notes |
 |----------|-------------|---------|-------|
 | `FRONTEND_URL` | Frontend origin | - | For CORS configuration |
+| `ONBOARDING_TUTORIAL_ENFORCED` | Enforce onboarding tutorial before `PUT /api/profile` | `true` in production when unset | Set to `false` for emergency rollback (must be `true` or `false`) |
 
 ---
 

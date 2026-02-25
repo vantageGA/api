@@ -13,6 +13,7 @@ import {
   updateProfileClicks,
   getAllProfileImages,
   getAllProfileImagesPublic,
+  updateOnboardingTutorialStatus,
 } from '../controllers/profileController.js';
 
 import { protect, admin } from '../middleware/authMiddleware.js';
@@ -23,6 +24,7 @@ import {
   updateClicksSchema,
   createReviewSchema,
   updateProfileSchema,
+  updateOnboardingTutorialSchema,
   deleteReviewSchema,
   paginationSchema,
 } from '../validators/profileValidator.js';
@@ -65,6 +67,9 @@ router
 
 // 🔴 FRONTEND IMPACT: Route changed from PUT /api/profile/:id to PUT /api/profile
 router.route('/profile').get(protect, getProfile).put(protect, validate(updateProfileSchema), updateProfile);
+router
+  .route('/profile/onboarding-tutorial')
+  .patch(protect, validate(updateOnboardingTutorialSchema), updateOnboardingTutorialStatus);
 
 // UPDATE number of profile clicks
 router.route('/profile-clicks').put(validate(updateClicksSchema), updateProfileClicks);

@@ -154,6 +154,51 @@ const profileSchema = mongoose.Schema(
       type: Number,
       default: 0,
     },
+    onboardingTutorial: {
+      required: {
+        type: Boolean,
+        default: true,
+      },
+      hasInteracted: {
+        type: Boolean,
+        default: false,
+      },
+      interactionType: {
+        type: String,
+        enum: ['play_started', 'progress', 'completed', 'manual_ack'],
+        default: null,
+      },
+      watchProgressPercent: {
+        type: Number,
+        min: 0,
+        max: 100,
+        default: 0,
+      },
+      manualAcknowledged: {
+        type: Boolean,
+        default: false,
+      },
+      completionThresholdPercent: {
+        type: Number,
+        default: 90,
+      },
+      isCompleted: {
+        type: Boolean,
+        default: false,
+      },
+      firstInteractedAt: {
+        type: Date,
+        default: null,
+      },
+      completedAt: {
+        type: Date,
+        default: null,
+      },
+      version: {
+        type: String,
+        default: 'v1',
+      },
+    },
   },
   {
     timestamps: true,

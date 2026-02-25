@@ -38,7 +38,8 @@ All routes are mounted under `/api` in `server.js` unless noted.
 | GET | `/profiles/:id` | Public | `getProfileById` | Profile by id. |
 | GET | `/profile/:id` | Public | `getProfileById` | Backward compatible alias. |
 | GET | `/profile` | Auth | `getProfile` | Current user's profile. |
-| PUT | `/profile` | Auth | `updateProfile` | Update current user's profile. |
+| PUT | `/profile` | Auth | `updateProfile` | Update current user's profile (blocked with `403 ONBOARDING_TUTORIAL_REQUIRED` when onboarding is incomplete and enforcement is enabled). |
+| PATCH | `/profile/onboarding-tutorial` | Auth | `updateOnboardingTutorialStatus` | Update onboarding tutorial interaction/completion state for current user. |
 | PUT | `/profile-clicks` | Public | `updateProfileClicks` | Increments click counter (by id in body). |
 | POST | `/profiles/:id/reviews` | Auth | `createProfileReview` | Reviewer creates review (rate limited). |
 | DELETE | `/profiles/:id/reviews` | Admin | `deleteReview` | Delete review (reviewId in body). |
