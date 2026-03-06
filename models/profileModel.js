@@ -166,7 +166,6 @@ const profileSchema = mongoose.Schema(
       interactionType: {
         type: String,
         enum: ['play_started', 'progress', 'completed', 'manual_ack'],
-        default: null,
       },
       watchProgressPercent: {
         type: Number,
