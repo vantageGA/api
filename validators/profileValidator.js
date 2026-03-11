@@ -1,6 +1,27 @@
 import Joi from 'joi';
 import { objectIdValidator } from './commonValidators.js';
 
+const stripHtml = (value = '') =>
+  value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const richTextField = (maxCharacters, label) =>
+  Joi.string()
+    .allow('')
+    .custom((value, helpers) => {
+      if (!value) return value;
+
+      const visibleText = stripHtml(value);
+      if (visibleText.length > maxCharacters) {
+        return helpers.message(`${label} must not exceed ${maxCharacters} characters`);
+      }
+
+      return value;
+    }, `${label} visible text length validation`);
+
 export const profileIdSchema = Joi.object({
   id: Joi.string()
     .custom(objectIdValidator)
@@ -76,15 +97,9 @@ export const updateProfileSchema = Joi.object({
   profileImage: Joi.string().max(500).messages({
     'string.max': 'Profile image URL must not exceed 500 characters',
   }),
-  description: Joi.string().max(2000).allow('').messages({
-    'string.max': 'Description must not exceed 2000 characters',
-  }),
-  qualifications: Joi.string().max(1000).allow('').messages({
-    'string.max': 'Qualifications must not exceed 1000 characters',
-  }),
-  specialisation: Joi.string().max(200).allow('').messages({
-    'string.max': 'Specialisation must not exceed 200 characters',
-  }),
+  description: richTextField(2000, 'Description'),
+  qualifications: richTextField(1000, 'Qualifications'),
+  specialisation: richTextField(400, 'Specialisation'),
   location: Joi.string().max(200).allow('').messages({
     'string.max': 'Location must not exceed 200 characters',
   }),
@@ -184,7 +199,7 @@ export const paginationSchema = Joi.object({
   location: Joi.string().max(200).allow('').messages({
     'string.max': 'Location filter must not exceed 200 characters',
   }),
-  specialisation: Joi.string().max(200).allow('').messages({
-    'string.max': 'Specialisation filter must not exceed 200 characters',
+  specialisation: Joi.string().max(400).allow('').messages({
+    'string.max': 'Specialisation filter must not exceed 400 characters',
   }),
 });
