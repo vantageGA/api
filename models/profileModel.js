@@ -1,5 +1,12 @@
 import mongoose from 'mongoose';
 
+const QUALIFICATION_VERIFICATION_STATUSES = [
+  'none',
+  'pending',
+  'approved',
+  'rejected',
+];
+
 const reviewsSchema = mongoose.Schema(
   {
     user: {
@@ -98,6 +105,15 @@ const profileSchema = mongoose.Schema(
       type: Boolean,
       required: true,
       default: false,
+    },
+    qualificationVerificationStatus: {
+      type: String,
+      enum: QUALIFICATION_VERIFICATION_STATUSES,
+      default: 'none',
+    },
+    qualificationStatusUpdatedAt: {
+      type: Date,
+      default: null,
     },
     location: {
       type: String,

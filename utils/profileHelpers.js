@@ -94,6 +94,8 @@ export const PROTECTED_FIELDS = [
   'rating',
   'numReviews',
   'isQualificationsVerified',
+  'qualificationVerificationStatus',
+  'qualificationStatusUpdatedAt',
   'reviews',
   'profileClickCounter',
   '_id',

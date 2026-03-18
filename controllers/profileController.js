@@ -161,6 +161,8 @@ const createProfile = asyncHandler(async (req, res) => {
     location: '',
     qualifications: '',
     isQualificationsVerified: false,
+    qualificationVerificationStatus: 'none',
+    qualificationStatusUpdatedAt: null,
     telephoneNumber: '',
     keywords: [], // New array-based keywords field
     keyWordSearchOne: '',
@@ -558,6 +560,8 @@ const updateProfileQualificationToTrue = asyncHandler(async (req, res) => {
 
   if (profile) {
     profile.isQualificationsVerified = true;
+    profile.qualificationVerificationStatus = 'approved';
+    profile.qualificationStatusUpdatedAt = new Date();
     const updateProfile = await profile.save();
     res.json(updateProfile);
   } else {
