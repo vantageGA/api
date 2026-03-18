@@ -25,6 +25,9 @@
 ### docs/ROUTES.md
 - Full API route index with method, auth, and handler mapping.
 
+### docs/QUALIFICATION_DOCUMENT_MANUAL_TESTS.md
+- Step-by-step backend manual verification scenarios for qualification-document routes.
+
 ### docs/KEYWORD_SEARCH_ARCHITECTURE.md
 - Replaces keyword permutation string with normalized `keywords` array.
 - Adds MongoDB text index with weighted fields (name, keywords, specialisation, location, description).
@@ -55,6 +58,7 @@
 - `routes/confirmEmailRoutes.js` -> `controllers/confirmEmailController.js`
 - `routes/contactFormRoutes.js` -> `controllers/contactFormController.js`
 - `routes/profileRoutes.js` -> `controllers/profileController.js`
+- `routes/qualificationDocumentRoutes.js` -> `controllers/qualificationDocumentController.js`
 - `routes/userReviewRoutes.js` -> `controllers/userReviewsController.js`
 - `routes/imageUploadRoutes.js` -> `controllers/imageUploadController.js`
 - `routes/profileImageRoutes.js` -> `controllers/imageUploadController.js` (profile upload path)
@@ -63,12 +67,14 @@
 ### Models (Mongoose)
 - `models/userModel.js`
 - `models/profileModel.js`
+- `models/qualificationDocumentModel.js`
 - `models/userReviewerModel.js`
 - `models/imageUploadModal.js`
 - `models/profileImageModel.js`
 
 ### Middleware
 - `middleware/authMiddleware.js`: auth gate/role protection.
+- `middleware/qualificationDocumentUploadMiddleware.js`: multer-based qualification document upload parsing and file validation.
 - `middleware/validationMiddleware.js`: request validation wiring.
 - `middleware/rateLimitMiddleware.js`: general + endpoint rate limiters.
 - `middleware/errorMiddleware.js`: notFound + error handler.
@@ -78,11 +84,12 @@
 - `services/stripeService.js`: Stripe integration helpers.
 - `utils/emailService.js`: transporter init + low-level email helpers.
 - `utils/generateToken.js`: JWT helpers (token types).
-- `utils/profileHelpers.js`: keyword sync helpers for profiles.
+- `utils/profileHelpers.js`: keyword and qualification-summary sync helpers for profiles.
 - `utils/auditLogger.js`: security event logging to `logs/`.
 
 ### Scripts
 - `scripts/migrateKeywords.js`: keywords migration and text index verification.
+- `scripts/backfillQualificationVerificationStatus.js`: backfills `qualificationVerificationStatus` from legacy `isQualificationsVerified` values.
 
 ## Dependencies (runtime highlights)
 - Server: `express`, `cors`, `helmet`, `express-mongo-sanitize`, `express-rate-limit`, `dotenv`.
@@ -97,6 +104,7 @@
 - Start (node): `npm start`
 - Tests: `npm test` (currently placeholder; exits with error)
 - Keyword migration: `node scripts/migrateKeywords.js`
+- Qualification status backfill: `node scripts/backfillQualificationVerificationStatus.js`
 
 ## Project Skills (from .git/skills/)
 
@@ -147,12 +155,19 @@
 - `PUT /api/reviewer-update-password` -> `updateReviewerPassword` (public)
 
 ### Profiles
+- `GET /api/profile/qualification-documents` -> `getQualificationDocuments` (auth)
+- `POST /api/profile/qualification-documents` -> `uploadQualificationDocument` (auth, qualification-document mutation rate limit)
+- `PUT /api/profile/qualification-documents/:id` -> `replaceQualificationDocument` (auth, qualification-document mutation rate limit)
+- `DELETE /api/profile/qualification-documents/:id` -> `deleteQualificationDocument` (auth, qualification-document mutation rate limit)
+- `GET /api/profiles/admin/qualification-documents` -> `getQualificationDocumentsAdmin` (admin)
+- `PATCH /api/profiles/admin/qualification-documents/:id/review` -> `reviewQualificationDocument` (admin, qualification-document review rate limit)
 - `GET /api/profiles` -> `getAllProfiles` (public, pagination + search)
 - `POST /api/profiles` -> `createProfile` (auth)
 - `GET /api/profiles/:id` -> `getProfileById` (public)
 - `GET /api/profile/:id` -> `getProfileById` (public, backward compat)
 - `GET /api/profile` -> `getProfile` (auth)
 - `PUT /api/profile` -> `updateProfile` (auth)
+- `PATCH /api/profile/onboarding-tutorial` -> `updateOnboardingTutorialStatus` (auth)
 - `PUT /api/profile-clicks` -> `updateProfileClicks` (public)
 - `POST /api/profiles/:id/reviews` -> `createProfileReview` (auth, review rate limit)
 - `DELETE /api/profiles/:id/reviews` -> `deleteReview` (admin)
@@ -205,6 +220,7 @@
 - Auth + user lifecycle: `routes/userRoutes.js`, `controllers/userController.js`, `models/userModel.js`, `utils/generateToken.js`.
 - Reviewer accounts: `routes/userReviewRoutes.js`, `controllers/userReviewsController.js`, `models/userReviewerModel.js`.
 - Profiles + search: `routes/profileRoutes.js`, `controllers/profileController.js`, `models/profileModel.js`, `utils/profileHelpers.js`.
+- Qualification documents: `routes/qualificationDocumentRoutes.js`, `controllers/qualificationDocumentController.js`, `models/qualificationDocumentModel.js`, `validators/qualificationDocumentValidator.js`, `middleware/qualificationDocumentUploadMiddleware.js`.
 - Email sending: `services/emailService.js`, `utils/emailService.js`.
 - Stripe: `routes/stripeRoutes.js`, `controllers/stripeWebhookController.js`, `services/stripeService.js`, `config/stripe.js`.
 - Security middleware + logging: `middleware/authMiddleware.js`, `middleware/rateLimitMiddleware.js`, `middleware/errorMiddleware.js`, `utils/auditLogger.js`.
@@ -223,11 +239,19 @@
 ### Profile (`models/profileModel.js`)
 - Owner: `user` (unique per user).
 - Public fields: `name`, `email` (sparse unique), `profileImage`, `description`, `specialisation`, `location`, `telephoneNumber`, socials.
+- Verification summary: `isQualificationsVerified`, `qualificationVerificationStatus`, `qualificationStatusUpdatedAt`.
 - Keywords: `keywords` array (max 5) + legacy `keyWordSearchOne..Five`.
 - Specialisation fields: `specialisationOne..Four`.
 - Reviews: embedded `reviews` (rating/comment/showName/userProfileId/hasAccepted).
 - Stats: `rating`, `numReviews`, `profileClickCounter`.
 - Indexes: text search index + filters/sorting indexes.
+
+### QualificationDocument (`models/qualificationDocumentModel.js`)
+- Ownership: `user`, `profile`.
+- File metadata: `originalFileName`, `mimeType`, `fileSizeBytes`, `cloudinaryPublicId`, `cloudinaryResourceType`.
+- Review state: `status`, `rejectionReason`, `reviewedAt`, `reviewedBy`.
+- Lifecycle: `isActive`, `supersededAt`.
+- Indexes: active profile lookup, user history, admin status queue, review audit lookup.
 
 ### UserReviewer (`models/userReviewerModel.js`)
 - Identity: `name`, `email` (unique), `password`.
@@ -263,6 +287,16 @@
 - Upload profile image (`/api/profileUpload`) -> profile updated.
 - Delete profile image -> Cloudinary cleanup.
 
+### Qualification Documents
+- Upload qualification document -> active document becomes `pending`, an audit log entry is written, and the request stays below the mutation limiter.
+- Replace and delete qualification documents while under the limit -> requests succeed and profile summary stays aligned.
+- Exceed 10 qualification-document mutation requests within 15 minutes as the same authenticated user -> API returns `429`.
+- Admin review approve/reject -> active submission status and profile summary are updated and an admin audit log entry is written.
+- Exceed 60 admin review actions within 15 minutes as the same admin -> API returns `429`.
+- Reject unsupported file types and oversize files -> API returns `400`.
+- Authorization checks: unauthenticated upload is rejected; non-owner delete is rejected; non-admin review is rejected.
+- Full step-by-step API scenarios are documented in `docs/QUALIFICATION_DOCUMENT_MANUAL_TESTS.md`.
+
 ### Stripe
 - Checkout session -> user created if needed -> verification email sent.
 - Webhook: `checkout.session.completed` sets subscription + plan + period end.
@@ -280,6 +314,7 @@
 ## Security Checklist
 - CORS: ensure `FRONTEND_URL`, `RESET_PASSWORD_LOCAL_URL`, `MAILER_LOCAL_URL` are set; only approved origins should pass.
 - Rate limits: login/registration/reset + general `/api` limiter enabled; tune for production traffic.
+- Qualification document mutation and admin review endpoints have dedicated per-user/per-admin rate limits in addition to the general `/api` limiter.
 - Headers: `helmet` enabled with CSP + HSTS; review CSP when adding new assets.
 - Input validation: Joi schemas for auth + profile updates; keep validators in sync with models.
 - Secrets: rotate `JWT_SECRET`, SMTP credentials, Cloudinary keys, Stripe secrets; never commit `.env`.
@@ -292,7 +327,7 @@
 - CORS errors: confirm request origin is in allowed origins list.
 - Password reset fails: ensure token type is `password_reset` and not expired (15 minutes).
 - Stripe webhooks fail: verify raw body is enabled and `STRIPE_WEBHOOK_SECRET` matches.
-- Upload fails: confirm file type is jpg/jpeg/png and Cloudinary credentials are set.
+- Upload fails: for image endpoints confirm `jpg/jpeg/png`; for qualification-document endpoints confirm `PDF/JPG/PNG` with multipart field `qualificationDocument`, file size <= `5MB`, and Cloudinary credentials.
 - Search returns empty: ensure `profile_search_index` exists and `keywords` array is populated.
 
 ## Changelog Stub
@@ -308,6 +343,7 @@
 
 ## Migration History (known)
 - Keyword search migration: `scripts/migrateKeywords.js` (see `docs/KEYWORD_SEARCH_*`).
+- Qualification status backfill: `scripts/backfillQualificationVerificationStatus.js` (maps legacy boolean verification to status enum for existing profiles).
 
 ## Dependency Update Policy (suggested)
 - Monthly: `npm audit` + update minor/patch versions.
@@ -316,6 +352,7 @@
 
 ## Observability Notes
 - Audit log: `utils/auditLogger.js` writes to `logs/`.
+- Qualification-document lifecycle events are written to `logs/audit.log` with actor, target user, profile, and document identifiers.
 - Server log: stdout/stderr; consider log rotation in production.
 - Add request correlation ID middleware if tracing is needed.
 

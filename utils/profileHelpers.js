@@ -1,3 +1,5 @@
+import QualificationDocument from '../models/qualificationDocumentModel.js';
+
 /**
  * Calculate the average rating from an array of reviews
  * @param {Array} reviews - Array of review objects with rating property
@@ -37,6 +39,71 @@ export const syncKeywordsArray = (profile) => {
   profile.keywords = keywordFields
     .filter((keyword) => keyword && keyword.trim().length >= 3)
     .map((keyword) => keyword.trim().toLowerCase());
+};
+
+export const QUALIFICATION_VERIFICATION_STATUSES = Object.freeze({
+  NONE: 'none',
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+});
+
+const isValidQualificationVerificationStatus = (status) =>
+  Object.values(QUALIFICATION_VERIFICATION_STATUSES).includes(status);
+
+export const updateProfileQualificationSummary = (
+  profile,
+  status,
+  updatedAt = new Date(),
+) => {
+  if (!isValidQualificationVerificationStatus(status)) {
+    throw new Error(`Invalid qualification verification status: ${status}`);
+  }
+
+  profile.qualificationVerificationStatus = status;
+  profile.qualificationStatusUpdatedAt = updatedAt;
+  profile.isQualificationsVerified =
+    status === QUALIFICATION_VERIFICATION_STATUSES.APPROVED;
+
+  return profile;
+};
+
+export const saveProfileQualificationSummary = async (
+  profile,
+  status,
+  updatedAt = new Date(),
+) => {
+  updateProfileQualificationSummary(profile, status, updatedAt);
+  await profile.save();
+  return profile;
+};
+
+export const syncProfileQualificationSummaryFromActiveDocument = async (
+  profile,
+  fallbackDate = new Date(),
+) => {
+  const activeDocument = await QualificationDocument.findOne({
+    profile: profile._id,
+    isActive: true,
+  }).sort({ createdAt: -1 });
+
+  if (!activeDocument) {
+    await saveProfileQualificationSummary(
+      profile,
+      QUALIFICATION_VERIFICATION_STATUSES.NONE,
+      fallbackDate,
+    );
+    return null;
+  }
+
+  const updatedAt =
+    activeDocument.reviewedAt ||
+    activeDocument.updatedAt ||
+    activeDocument.createdAt ||
+    fallbackDate;
+
+  await saveProfileQualificationSummary(profile, activeDocument.status, updatedAt);
+  return activeDocument;
 };
 
 /**

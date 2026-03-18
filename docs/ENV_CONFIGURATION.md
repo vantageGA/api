@@ -162,6 +162,12 @@ mongodb+srv://username:password@cluster.mongodb.net/database?options
 3. **Email Change:** Sends verification to new address
 4. **Password Changed:** Sends confirmation email
 
+### Qualification Document Uploads
+- Qualification-document routes (`/api/profile/qualification-documents*`) use the same Cloudinary credentials as image uploads.
+- `PDF` uploads are stored in Cloudinary using `resource_type=raw`.
+- `JPG/PNG` uploads are stored in Cloudinary using `resource_type=image`.
+- No additional environment variables are required beyond existing `CLOUDINARY_*` keys.
+
 ### Testing Emails in Development
 
 During development, emails will include console output:

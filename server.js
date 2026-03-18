@@ -17,6 +17,7 @@ import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import imageUploadRoutes from './routes/imageUploadRoutes.js';
 import profileImageRoutes from './routes/profileImageRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
+import qualificationDocumentRoutes from './routes/qualificationDocumentRoutes.js';
 import userReviewRoutes from './routes/userReviewRoutes.js';
 import stripeRoutes from './routes/stripeRoutes.js';
 import { apiLimiter } from './middleware/rateLimitMiddleware.js';
@@ -107,6 +108,9 @@ app.use('/api', confirmEmailRoutes);
 app.use('/api', contactFormRoutes);
 app.use('/api', userRoutes);
 
+// Qualification document routes must be registered before profileRoutes
+// so /api/profile/qualification-documents is not matched by /api/profile/:id
+app.use('/api', qualificationDocumentRoutes);
 // Profiles Routes
 app.use('/api', profileRoutes);
 // User Review routes

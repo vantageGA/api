@@ -33,6 +33,12 @@ All routes are mounted under `/api` in `server.js` unless noted.
 ## Profiles
 | Method | Path | Auth | Handler | Notes |
 |---|---|---|---|---|
+| GET | `/profile/qualification-documents` | Auth | `getQualificationDocuments` | Current user qualification documents (paginated, optional `status` and `isActive` filters). |
+| POST | `/profile/qualification-documents` | Auth | `uploadQualificationDocument` | Upload qualification document for current user (`qualificationDocument` field, PDF/JPG/PNG only, max 5MB, stored in Cloudinary as `raw` for PDF and `image` for JPG/PNG, mutation rate limited to 10 requests per 15 minutes per authenticated user). |
+| PUT | `/profile/qualification-documents/:id` | Auth | `replaceQualificationDocument` | Replace an active qualification document (`qualificationDocument` field, PDF/JPG/PNG only, max 5MB, stored in Cloudinary as `raw` for PDF and `image` for JPG/PNG, mutation rate limited to 10 requests per 15 minutes per authenticated user). |
+| DELETE | `/profile/qualification-documents/:id` | Auth | `deleteQualificationDocument` | Delete a qualification document owned by the current user (mutation rate limited to 10 requests per 15 minutes per authenticated user). |
+| GET | `/profiles/admin/qualification-documents` | Admin | `getQualificationDocumentsAdmin` | Admin qualification document queue (paginated, optional `status` and `isActive` filters). |
+| PATCH | `/profiles/admin/qualification-documents/:id/review` | Admin | `reviewQualificationDocument` | Approve or reject an active qualification document (review rate limited to 60 requests per 15 minutes per admin). |
 | GET | `/profiles` | Public | `getAllProfiles` | Pagination + search (`search`, `page`, `limit`). |
 | POST | `/profiles` | Auth | `createProfile` | Create profile. |
 | GET | `/profiles/:id` | Public | `getProfileById` | Profile by id. |

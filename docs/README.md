@@ -6,6 +6,7 @@ Short entry points for backend work.
 - ENV_CONFIGURATION.md: Environment variables, validation, and production warnings.
 - SECURITY_IMPROVEMENTS.md: Auth and user-management security updates.
 - ROUTES.md: Full API route index (methods, auth, handlers).
+- QUALIFICATION_DOCUMENT_MANUAL_TESTS.md: Manual API verification scenarios for qualification document backend flows.
 
 ## Keyword Search Migration
 - KEYWORD_SEARCH_ARCHITECTURE.md: Server-side search design and API usage.

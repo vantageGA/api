@@ -10,6 +10,8 @@ import {
   syncKeywordsArray,
   PROFILE_CONSTANTS,
   ALLOWED_UPDATE_FIELDS,
+  QUALIFICATION_VERIFICATION_STATUSES,
+  saveProfileQualificationSummary,
 } from '../utils/profileHelpers.js';
 import { validateObjectId } from '../validators/commonValidators.js';
 
@@ -161,7 +163,7 @@ const createProfile = asyncHandler(async (req, res) => {
     location: '',
     qualifications: '',
     isQualificationsVerified: false,
-    qualificationVerificationStatus: 'none',
+    qualificationVerificationStatus: QUALIFICATION_VERIFICATION_STATUSES.NONE,
     qualificationStatusUpdatedAt: null,
     telephoneNumber: '',
     keywords: [], // New array-based keywords field
@@ -559,10 +561,11 @@ const updateProfileQualificationToTrue = asyncHandler(async (req, res) => {
   const profile = await Profile.findById(req.params.id);
 
   if (profile) {
-    profile.isQualificationsVerified = true;
-    profile.qualificationVerificationStatus = 'approved';
-    profile.qualificationStatusUpdatedAt = new Date();
-    const updateProfile = await profile.save();
+    const updateProfile = await saveProfileQualificationSummary(
+      profile,
+      QUALIFICATION_VERIFICATION_STATUSES.APPROVED,
+      new Date(),
+    );
     res.json(updateProfile);
   } else {
     res.status(404);
