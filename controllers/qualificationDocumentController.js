@@ -1,5 +1,7 @@
 import asyncHandler from 'express-async-handler';
 import cloudinary from 'cloudinary';
+import { unlink } from 'fs/promises';
+import { Readable } from 'stream';
 import Profile from '../models/profileModel.js';
 import QualificationDocument from '../models/qualificationDocumentModel.js';
 import {
@@ -15,6 +17,7 @@ import { logSecurityEvent, SecurityEvents } from '../utils/auditLogger.js';
 import { validateObjectId } from '../validators/commonValidators.js';
 
 const QUALIFICATION_DOCUMENT_FOLDER = 'qualificationDocuments';
+const QUALIFICATION_DOCUMENT_UPLOAD_TIMEOUT_MS = 45000;
 
 const buildQualificationDocumentAuditDetails = ({
   req,
@@ -131,19 +134,42 @@ const uploadQualificationAsset = async (file) => {
 
   if (file.buffer) {
     const result = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
+      let isSettled = false;
+      const settleOnce = (callback) => (value) => {
+        if (isSettled) {
+          return;
+        }
+
+        isSettled = true;
+        clearTimeout(timeoutId);
+        callback(value);
+      };
+
+      const resolveOnce = settleOnce(resolve);
+      const rejectOnce = settleOnce(reject);
+
+      const timeoutId = global.setTimeout(() => {
+        rejectOnce(
+          new Error(
+            'Qualification document upload timed out while transferring to Cloudinary',
+          ),
+        );
+      }, QUALIFICATION_DOCUMENT_UPLOAD_TIMEOUT_MS);
+
+      const uploadStream = cloudinary.uploader.upload_stream(
         uploadOptions,
         (error, uploadResult) => {
           if (error) {
-            reject(error);
+            rejectOnce(error);
             return;
           }
 
-          resolve(uploadResult);
+          resolveOnce(uploadResult);
         },
       );
 
-      stream.end(file.buffer);
+      uploadStream.on('error', rejectOnce);
+      Readable.from(file.buffer).on('error', rejectOnce).pipe(uploadStream);
     });
 
     return { result, resourceType };
@@ -160,6 +186,20 @@ const destroyQualificationAsset = async (document) => {
   await cloudinary.uploader.destroy(document.cloudinaryPublicId, {
     resource_type: document.cloudinaryResourceType || 'raw',
   });
+};
+
+const cleanupTemporaryUploadFile = async (file) => {
+  if (!file?.path) {
+    return;
+  }
+
+  try {
+    await unlink(file.path);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.error(`Failed to delete temporary upload file: ${file.path}`, error);
+    }
+  }
 };
 
 const supersedeActiveDocuments = async (profileId, supersededAt) => {
@@ -244,6 +284,8 @@ const createQualificationSubmission = async ({
     }).catch(() => {});
 
     throw error;
+  } finally {
+    await cleanupTemporaryUploadFile(file);
   }
 };
 

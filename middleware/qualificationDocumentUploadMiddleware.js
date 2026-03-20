@@ -1,4 +1,6 @@
 import multer from 'multer';
+import os from 'os';
+import path from 'path';
 
 export const QUALIFICATION_DOCUMENT_UPLOAD_FIELD = 'qualificationDocument';
 export const MAX_QUALIFICATION_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
@@ -8,8 +10,25 @@ export const ALLOWED_QUALIFICATION_DOCUMENT_MIME_TYPES = new Set([
   'image/png',
 ]);
 
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, os.tmpdir());
+  },
+  filename: (req, file, cb) => {
+    const safeBaseName = path
+      .basename(file.originalname, path.extname(file.originalname))
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .slice(0, 80);
+    const extension = path.extname(file.originalname) || '';
+    cb(
+      null,
+      `qualification-document-${Date.now()}-${safeBaseName}${extension}`,
+    );
+  },
+});
+
 const qualificationDocumentUpload = multer({
-  storage: multer.memoryStorage(),
+  storage,
   limits: {
     fileSize: MAX_QUALIFICATION_DOCUMENT_SIZE_BYTES,
     files: 1,
