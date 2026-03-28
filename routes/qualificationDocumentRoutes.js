@@ -5,6 +5,7 @@ import {
   replaceQualificationDocument,
   deleteQualificationDocument,
   getQualificationDocumentsAdmin,
+  downloadQualificationDocumentAdmin,
   reviewQualificationDocument,
 } from '../controllers/qualificationDocumentController.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
@@ -57,6 +58,15 @@ router
     admin,
     validate(qualificationDocumentListQuerySchema, 'query'),
     getQualificationDocumentsAdmin,
+  );
+
+router
+  .route('/profiles/admin/qualification-documents/:id/download')
+  .get(
+    protect,
+    admin,
+    validate(qualificationDocumentIdSchema, 'params'),
+    downloadQualificationDocumentAdmin,
   );
 
 router

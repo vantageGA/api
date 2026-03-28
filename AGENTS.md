@@ -90,6 +90,7 @@
 ### Scripts
 - `scripts/migrateKeywords.js`: keywords migration and text index verification.
 - `scripts/backfillQualificationVerificationStatus.js`: backfills `qualificationVerificationStatus` from legacy `isQualificationsVerified` values.
+- `scripts/backfillQualificationDocumentResourceTypes.js`: backfills qualification document Cloudinary resource types from live Cloudinary metadata.
 
 ## Dependencies (runtime highlights)
 - Server: `express`, `cors`, `helmet`, `express-mongo-sanitize`, `express-rate-limit`, `dotenv`.
@@ -105,6 +106,7 @@
 - Tests: `npm test` (currently placeholder; exits with error)
 - Keyword migration: `node scripts/migrateKeywords.js`
 - Qualification status backfill: `node scripts/backfillQualificationVerificationStatus.js`
+- Qualification document resource type backfill: `node scripts/backfillQualificationDocumentResourceTypes.js`
 
 ## Project Skills (from .git/skills/)
 

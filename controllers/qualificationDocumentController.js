@@ -13,7 +13,11 @@ import {
   saveProfileQualificationSummary,
   syncProfileQualificationSummaryFromActiveDocument,
 } from '../utils/profileHelpers.js';
-import { logSecurityEvent, SecurityEvents } from '../utils/auditLogger.js';
+import {
+  logError,
+  logSecurityEvent,
+  SecurityEvents,
+} from '../utils/auditLogger.js';
 import { validateObjectId } from '../validators/commonValidators.js';
 
 const QUALIFICATION_DOCUMENT_FOLDER = 'qualificationDocuments';
@@ -84,6 +88,66 @@ const logQualificationDocumentEvent = (event, options) => {
 
 const getCloudinaryResourceType = (mimeType) =>
   mimeType === 'application/pdf' ? 'raw' : 'image';
+
+const getQualificationDocumentDownloadFormat = (document) => {
+  switch (document?.mimeType) {
+    case 'application/pdf':
+      return 'pdf';
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    default:
+      return null;
+  }
+};
+
+const getQualificationDocumentDownloadResourceTypes = (document) => {
+  if (document?.mimeType === 'application/pdf') {
+    return ['image', 'raw'];
+  }
+
+  const resourceType =
+    document?.cloudinaryResourceType ||
+    getCloudinaryResourceType(document?.mimeType);
+
+  return resourceType ? [resourceType] : [];
+};
+
+const buildQualificationDocumentSignedDownloadUrl = (
+  document,
+  resourceTypeOverride = null,
+) => {
+  if (!document?.cloudinaryPublicId) {
+    return null;
+  }
+
+  const resourceType =
+    resourceTypeOverride ||
+    document.cloudinaryResourceType ||
+    getCloudinaryResourceType(document.mimeType);
+  const format = getQualificationDocumentDownloadFormat(document);
+
+  if (!resourceType || !format) {
+    return null;
+  }
+
+  return cloudinary.utils.private_download_url(
+    document.cloudinaryPublicId,
+    format,
+    {
+      resource_type: resourceType,
+      type: 'upload',
+      attachment: true,
+    },
+  );
+};
+
+const sanitizeDownloadFilename = (filename) =>
+  (filename || 'qualification-document')
+    .replace(/[\r\n"]/g, '')
+    .replace(/[\\/]/g, '_')
+    .trim();
 
 const ensureValidDocumentId = (id, res) => {
   if (!validateObjectId(id)) {
@@ -183,9 +247,45 @@ const destroyQualificationAsset = async (document) => {
     return;
   }
 
-  await cloudinary.uploader.destroy(document.cloudinaryPublicId, {
-    resource_type: document.cloudinaryResourceType || 'raw',
-  });
+  const failures = [];
+  const resourceTypes = getQualificationDocumentDownloadResourceTypes(document);
+
+  for (const resourceType of resourceTypes) {
+    try {
+      const result = await cloudinary.uploader.destroy(
+        document.cloudinaryPublicId,
+        {
+          resource_type: resourceType,
+        },
+      );
+
+      if (result?.result === 'ok') {
+        return;
+      }
+
+      failures.push({
+        resourceType,
+        result: result?.result || 'unknown',
+      });
+    } catch (error) {
+      failures.push({
+        resourceType,
+        error: error?.message || 'Unknown Cloudinary delete failure',
+      });
+    }
+  }
+
+  if (failures.length > 0) {
+    logError(
+      'Failed to delete qualification asset from Cloudinary',
+      new Error('Cloudinary deletion failed for all resource types'),
+      {
+        documentId: document._id,
+        cloudinaryPublicId: document.cloudinaryPublicId,
+        failures,
+      },
+    );
+  }
 };
 
 const cleanupTemporaryUploadFile = async (file) => {
@@ -258,7 +358,7 @@ const createQualificationSubmission = async ({
       mimeType: file.mimetype,
       fileSizeBytes: file.size,
       cloudinaryPublicId: result.public_id,
-      cloudinaryResourceType: resourceType,
+      cloudinaryResourceType: result.resource_type || resourceType,
       status: 'pending',
       rejectionReason: '',
       reviewedAt: null,
@@ -280,7 +380,8 @@ const createQualificationSubmission = async ({
   } catch (error) {
     await destroyQualificationAsset({
       cloudinaryPublicId: result.public_id,
-      cloudinaryResourceType: resourceType,
+      cloudinaryResourceType: result.resource_type || resourceType,
+      mimeType: file.mimetype,
     }).catch(() => {});
 
     throw error;
@@ -478,6 +579,109 @@ const getQualificationDocumentsAdmin = asyncHandler(async (req, res) => {
   });
 });
 
+// @description: Download a qualification document as an admin
+// @route: GET /api/profiles/admin/qualification-documents/:id/download
+// @access: Private/Admin
+const downloadQualificationDocumentAdmin = asyncHandler(async (req, res) => {
+  ensureValidDocumentId(req.params.id, res);
+
+  const document = await QualificationDocument.findById(req.params.id).lean();
+
+  if (!document) {
+    res.status(404);
+    throw new Error('Qualification document not found');
+  }
+
+  const deliveryCandidates = getQualificationDocumentDownloadResourceTypes(
+    document,
+  )
+    .map((resourceType) => ({
+      label: `${resourceType}-signed`,
+      resourceType,
+      url: buildQualificationDocumentSignedDownloadUrl(
+        document,
+        resourceType,
+      ),
+    }))
+    .filter((candidate) => Boolean(candidate.url));
+
+  if (deliveryCandidates.length === 0) {
+    res.status(400);
+    throw new Error('Qualification document download is unavailable');
+  }
+
+  let successfulResponse = null;
+  const failures = [];
+
+  for (const candidate of deliveryCandidates) {
+    const response = await fetch(candidate.url);
+
+    if (response.ok) {
+      successfulResponse = response;
+      break;
+    }
+
+    const responseBody = await response.text().catch(() => '');
+    failures.push({
+      candidate: candidate.label,
+      status: response.status,
+      statusText: response.statusText,
+      responseBody,
+    });
+  }
+
+  if (!successfulResponse) {
+    const notFoundOnly =
+      failures.length > 0 && failures.every((failure) => failure.status === 404);
+
+    logError(
+      'Failed to download qualification document from Cloudinary',
+      new Error(
+        notFoundOnly
+          ? 'Qualification document not found in Cloudinary'
+          : 'Cloudinary download failed for all candidate resource types',
+      ),
+      {
+        documentId: document._id,
+        cloudinaryPublicId: document.cloudinaryPublicId,
+        failures,
+      },
+    );
+
+    res.status(notFoundOnly ? 404 : 502);
+    throw new Error(
+      notFoundOnly
+        ? 'Qualification document not found in Cloudinary'
+        : 'Failed to download qualification document from Cloudinary',
+    );
+  }
+
+  const contentType =
+    successfulResponse.headers.get('content-type') ||
+    document.mimeType ||
+    'application/octet-stream';
+  const contentLength = successfulResponse.headers.get('content-length');
+  const downloadFilename = sanitizeDownloadFilename(document.originalFileName);
+  const body = Buffer.from(await successfulResponse.arrayBuffer());
+
+  res.setHeader('Content-Type', contentType);
+  if (contentLength) {
+    res.setHeader('Content-Length', contentLength);
+  }
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${downloadFilename}"`,
+  );
+
+  logQualificationDocumentEvent(SecurityEvents.QUALIFICATION_DOCUMENT_DOWNLOADED, {
+    req,
+    document,
+    targetUserId: document.user,
+  });
+
+  res.status(200).send(body);
+});
+
 // @description: Review a qualification document as an admin
 // @route: PATCH /api/profiles/admin/qualification-documents/:id/review
 // @access: Private/Admin
@@ -548,5 +752,6 @@ export {
   replaceQualificationDocument,
   deleteQualificationDocument,
   getQualificationDocumentsAdmin,
+  downloadQualificationDocumentAdmin,
   reviewQualificationDocument,
 };
