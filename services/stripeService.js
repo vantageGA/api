@@ -1,6 +1,45 @@
 import stripe from '../config/stripe.js';
 import User from '../models/userModel.js';
 
+export class StripePriceConfigurationError extends Error {
+  constructor(message, context = {}) {
+    super(message);
+    this.name = 'StripePriceConfigurationError';
+    this.statusCode = 503;
+    this.clientMessage = 'Subscription checkout is temporarily unavailable. Please try again later.';
+    this.context = context;
+  }
+}
+
+const getPriceConfig = (plan) => {
+  const normalizedPlan = plan === 'annual' ? 'annual' : 'monthly';
+  const envVar = normalizedPlan === 'annual' ? 'STRIPE_PRICE_ANNUAL' : 'STRIPE_PRICE_MONTHLY';
+  const priceId = process.env[envVar];
+
+  if (!priceId || !priceId.startsWith('price_')) {
+    throw new StripePriceConfigurationError(`Invalid Stripe price configuration for ${normalizedPlan} plan`, {
+      plan: normalizedPlan,
+      envVar,
+      configured: Boolean(priceId),
+    });
+  }
+
+  return { plan: normalizedPlan, envVar, priceId };
+};
+
+export const isStripePriceConfigurationError = (error) => {
+  if (error instanceof StripePriceConfigurationError) {
+    return true;
+  }
+
+  const message = error?.message || '';
+  return (
+    error?.type === 'StripeInvalidRequestError' &&
+    error?.code === 'resource_missing' &&
+    (error?.param === 'price' || message.includes('No such price'))
+  );
+};
+
 export const getOrCreateStripeCustomer = async (user) => {
   if (user.stripeCustomerId) {
     // Verify that the customer actually exists in Stripe
@@ -28,9 +67,7 @@ export const getOrCreateStripeCustomer = async (user) => {
 export const createCheckoutSession = async (user, plan) => {
   const customerId = await getOrCreateStripeCustomer(user);
 
-  const priceId = plan === 'annual'
-    ? process.env.STRIPE_PRICE_ANNUAL
-    : process.env.STRIPE_PRICE_MONTHLY;
+  const { priceId } = getPriceConfig(plan);
 
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
@@ -59,9 +96,7 @@ export const createSubscription = async (user, plan, paymentMethodId) => {
     invoice_settings: { default_payment_method: paymentMethodId }
   });
 
-  const priceId = plan === 'annual'
-    ? process.env.STRIPE_PRICE_ANNUAL
-    : process.env.STRIPE_PRICE_MONTHLY;
+  const { priceId } = getPriceConfig(plan);
 
   const subscription = await stripe.subscriptions.create({
     customer: customerId,

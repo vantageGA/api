@@ -141,6 +141,13 @@ export const validateEnv = () => {
     });
   }
 
+  for (const varName of ['STRIPE_PRICE_MONTHLY', 'STRIPE_PRICE_ANNUAL']) {
+    const value = process.env[varName];
+    if (value && !value.startsWith('price_')) {
+      warnings.push(`${varName} should be a Stripe Price ID starting with "price_"`);
+    }
+  }
+
   // Validate optional boolean feature flags
   for (const varName of booleanFlagEnvVars) {
     const value = process.env[varName];
