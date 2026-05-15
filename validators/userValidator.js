@@ -1,7 +1,10 @@
 import Joi from 'joi';
 
-// Password validation pattern
-const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/;
+const passwordSpecialCharacters = '@$!%*?&-';
+const passwordRequirementMessage = `Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (${passwordSpecialCharacters})`;
+
+// Password validation pattern. Keep this aligned with client/src/utils/validation.js.
+const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&-])[A-Za-z\d@$!%*?&-]{8,128}$/;
 
 // User registration validation schema
 export const registerSchema = Joi.object({
@@ -34,10 +37,31 @@ export const registerSchema = Joi.object({
     .required()
     .pattern(passwordPattern)
     .messages({
-      'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)',
+      'string.pattern.base': passwordRequirementMessage,
       'string.min': 'Password must be at least 8 characters long',
       'string.max': 'Password cannot exceed 128 characters',
       'any.required': 'Password is required'
+    })
+});
+
+export const checkoutSessionSchema = Joi.object({
+  plan: Joi.string()
+    .valid('monthly', 'annual')
+    .required()
+    .messages({
+      'any.only': 'Plan must be monthly or annual',
+      'any.required': 'Plan is required'
+    }),
+  email: Joi.string()
+    .email()
+    .lowercase()
+    .trim()
+    .required()
+    .max(255)
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'string.max': 'Email cannot exceed 255 characters',
+      'any.required': 'Email is required'
     })
 });
 
@@ -85,7 +109,7 @@ export const updateProfileSchema = Joi.object({
     .max(128)
     .pattern(passwordPattern)
     .messages({
-      'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)',
+      'string.pattern.base': passwordRequirementMessage,
       'string.min': 'Password must be at least 8 characters long',
       'string.max': 'Password cannot exceed 128 characters'
     }),
@@ -126,7 +150,7 @@ export const resetPasswordSchema = Joi.object({
     .required()
     .pattern(passwordPattern)
     .messages({
-      'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)',
+      'string.pattern.base': passwordRequirementMessage,
       'string.min': 'Password must be at least 8 characters long',
       'string.max': 'Password cannot exceed 128 characters',
       'any.required': 'Password is required'

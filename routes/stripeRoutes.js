@@ -10,12 +10,22 @@ import { generateEmailVerificationToken } from '../utils/generateToken.js';
 import { sendVerificationEmail } from '../services/emailService.js';
 import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
 import { checkoutLimiter } from '../middleware/rateLimitMiddleware.js';
+import { checkoutSessionSchema, registerSchema } from '../validators/userValidator.js';
 
 const router = express.Router();
 
 router.post('/checkout-session', checkoutLimiter, async (req, res) => {
   try {
-    const { plan, email, name, password } = req.body;
+    const { error, value } = checkoutSessionSchema.validate(req.body, {
+      stripUnknown: true,
+      abortEarly: false
+    });
+
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { plan, email } = value;
 
     // Check if user already exists
     let user = await User.findOne({ email });
@@ -40,10 +50,19 @@ router.post('/checkout-session', checkoutLimiter, async (req, res) => {
       // User exists but not confirmed - this is a retry, allow them to proceed
       // (verification email will be resent below)
     } else {
-      // New user - validate and create
-      if (!password) {
-        return res.status(400).json({ error: 'Password is required to create a new user' });
+      const { error: registrationError, value: registrationValue } = registerSchema.validate(
+        { ...req.body, email },
+        {
+          stripUnknown: true,
+          abortEarly: false
+        }
+      );
+
+      if (registrationError) {
+        return res.status(400).json({ error: registrationError.details[0].message });
       }
+
+      const { name, password } = registrationValue;
 
       // Note: Password is passed unhashed - the User model's pre-save hook handles hashing
       user = new User({
