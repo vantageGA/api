@@ -1,5 +1,22 @@
 # Environment Configuration Guide
 
+## AI Profile Drafting
+
+AI-assisted profile drafting is disabled unless `AI_PROFILE_DRAFT_ENABLED=true`.
+
+Required when enabled:
+
+- `OPENAI_API_KEY` — OpenAI API key used only by the Node API.
+
+Optional:
+
+- `OPENAI_MODEL` — shared OpenAI model setting for AI features, for example `gpt-5.5`.
+- `OPENAI_PROFILE_DRAFT_MODEL` — optional profile-draft-specific model override. Falls back to `OPENAI_MODEL`, then `gpt-5.5`.
+- `AI_PROFILE_DRAFT_MAX_INPUT_CHARS` — maximum natural-language input length. Defaults to `4000`.
+- `AI_PROFILE_DRAFT_RATE_LIMIT_PER_HOUR` — authenticated user draft-generation limit. Defaults to `5`.
+
+The React client must not receive OpenAI credentials.
+
 ## Current .env Configuration Status
 
 ### ✅ All Required Variables Present

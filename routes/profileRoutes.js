@@ -15,9 +15,10 @@ import {
   getAllProfileImagesPublic,
   updateOnboardingTutorialStatus,
 } from '../controllers/profileController.js';
+import { createProfileAIDraft } from '../controllers/profileDraftController.js';
 
 import { protect, admin } from '../middleware/authMiddleware.js';
-import { reviewLimiter } from '../middleware/rateLimitMiddleware.js';
+import { profileDraftLimiter, reviewLimiter } from '../middleware/rateLimitMiddleware.js';
 import { validate } from '../middleware/validationMiddleware.js';
 import {
   profileIdSchema,
@@ -25,6 +26,7 @@ import {
   createReviewSchema,
   updateProfileSchema,
   updateOnboardingTutorialSchema,
+  profileDraftRequestSchema,
   deleteReviewSchema,
   paginationSchema,
 } from '../validators/profileValidator.js';
@@ -49,6 +51,15 @@ router
 router
   .route('/profiles/:id')
   .get(validate(profileIdSchema, 'params'), getProfileById);
+
+router
+  .route('/profile/ai-draft')
+  .post(
+    protect,
+    profileDraftLimiter,
+    validate(profileDraftRequestSchema),
+    createProfileAIDraft,
+  );
 
 // BACKWARD COMPATIBILITY: Keep old route /profile/:id working
 router

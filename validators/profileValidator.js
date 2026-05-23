@@ -178,6 +178,45 @@ export const updateOnboardingTutorialSchema = Joi.object({
   'object.min': 'At least one onboarding tutorial field must be provided',
 });
 
+const profileDraftMaxInputChars =
+  Number.parseInt(process.env.AI_PROFILE_DRAFT_MAX_INPUT_CHARS, 10) || 4000;
+
+const profileDraftNullableText = (maxCharacters, label) =>
+  Joi.string().trim().max(maxCharacters).allow('', null).messages({
+    'string.max': `${label} must not exceed ${maxCharacters} characters`,
+  });
+
+const profileDraftCurrentProfileSchema = Joi.object({
+  location: profileDraftNullableText(200, 'Location'),
+  telephoneNumber: profileDraftNullableText(20, 'Telephone number'),
+  websiteUrl: profileDraftNullableText(500, 'Website URL'),
+  faceBook: profileDraftNullableText(500, 'Facebook username'),
+  instagram: profileDraftNullableText(500, 'Instagram username'),
+  description: profileDraftNullableText(2000, 'Description'),
+  specialisation: profileDraftNullableText(400, 'Specialisation'),
+  qualifications: profileDraftNullableText(1000, 'Qualifications'),
+  specialisationOne: profileDraftNullableText(100, 'Specialisation 1'),
+  specialisationTwo: profileDraftNullableText(100, 'Specialisation 2'),
+  specialisationThree: profileDraftNullableText(100, 'Specialisation 3'),
+  specialisationFour: profileDraftNullableText(100, 'Specialisation 4'),
+  keywords: Joi.array().items(Joi.string().trim().min(3).max(50)).max(5),
+});
+
+export const profileDraftRequestSchema = Joi.object({
+  input: Joi.string()
+    .trim()
+    .min(40)
+    .max(profileDraftMaxInputChars)
+    .required()
+    .messages({
+      'string.empty': 'Profile draft input is required',
+      'string.min': `Profile draft input must be between 40 and ${profileDraftMaxInputChars} characters`,
+      'string.max': `Profile draft input must be between 40 and ${profileDraftMaxInputChars} characters`,
+      'any.required': 'Profile draft input is required',
+    }),
+  currentProfile: profileDraftCurrentProfileSchema.optional().default({}),
+});
+
 export const deleteReviewSchema = Joi.object({
   reviewId: Joi.string()
     .custom(objectIdValidator)

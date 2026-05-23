@@ -162,6 +162,43 @@ export const qualificationDocumentReviewLimiter = rateLimit({
   }
 });
 
+const getProfileDraftRateLimit = () => {
+  const configuredLimit = Number.parseInt(
+    process.env.AI_PROFILE_DRAFT_RATE_LIMIT_PER_HOUR,
+    10,
+  );
+
+  return Number.isInteger(configuredLimit) && configuredLimit > 0
+    ? configuredLimit
+    : 5;
+};
+
+// Rate limiter for AI profile draft generation
+export const profileDraftLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: getProfileDraftRateLimit(),
+  message: {
+    success: false,
+    message: 'Too many profile draft requests. Please try again after an hour.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?._id?.toString() || req.ip,
+  handler: (req, res) => {
+    logSecurityEvent(SecurityEvents.RATE_LIMIT_EXCEEDED, req.user?._id || 'unknown', {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      endpoint: req.originalUrl,
+      limiter: 'profileDraftLimiter'
+    });
+
+    res.status(429).json({
+      success: false,
+      message: 'Too many profile draft requests. Please try again after an hour.'
+    });
+  }
+});
+
 // General API rate limiter (for all routes as a safeguard)
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

@@ -45,6 +45,7 @@ All routes are mounted under `/api` in `server.js` unless noted.
 | GET | `/profile/:id` | Public | `getProfileById` | Backward compatible alias. |
 | GET | `/profile` | Auth | `getProfile` | Current user's profile. |
 | PUT | `/profile` | Auth | `updateProfile` | Update current user's profile (blocked with `403 ONBOARDING_TUTORIAL_REQUIRED` when onboarding is incomplete and enforcement is enabled). |
+| POST | `/profile/ai-draft` | Auth | `createProfileAIDraft` | Generate an OpenAI/LangChain structured profile draft from natural-language input. Requires `AI_PROFILE_DRAFT_ENABLED=true`, does not save the profile, and is rate limited per authenticated user. |
 | PATCH | `/profile/onboarding-tutorial` | Auth | `updateOnboardingTutorialStatus` | Update onboarding tutorial interaction/completion state for current user. |
 | PUT | `/profile-clicks` | Public | `updateProfileClicks` | Increments click counter (by id in body). |
 | POST | `/profiles/:id/reviews` | Auth | `createProfileReview` | Reviewer creates review (rate limited). |

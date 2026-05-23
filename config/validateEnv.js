@@ -39,6 +39,12 @@ const stripeEnvVars = [
 
 const booleanFlagEnvVars = [
   'ONBOARDING_TUTORIAL_ENFORCED',
+  'AI_PROFILE_DRAFT_ENABLED',
+];
+
+const positiveIntegerEnvVars = [
+  'AI_PROFILE_DRAFT_MAX_INPUT_CHARS',
+  'AI_PROFILE_DRAFT_RATE_LIMIT_PER_HOUR',
 ];
 
 // MongoDB URI can be either MONGO_URI or MONGODB_URI
@@ -148,11 +154,43 @@ export const validateEnv = () => {
     }
   }
 
+  const aiProfileDraftEnabled = process.env.AI_PROFILE_DRAFT_ENABLED === 'true';
+  if (aiProfileDraftEnabled && !process.env.OPENAI_API_KEY) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('\nFATAL ERROR: AI_PROFILE_DRAFT_ENABLED is true but OPENAI_API_KEY is missing.');
+      console.error('Please set OPENAI_API_KEY or disable AI_PROFILE_DRAFT_ENABLED.\n');
+      process.exit(1);
+    }
+
+    warnings.push(
+      'AI_PROFILE_DRAFT_ENABLED is true but OPENAI_API_KEY is missing; profile drafting will be unavailable',
+    );
+  }
+
+  if (
+    (process.env.OPENAI_PROFILE_DRAFT_MODEL || process.env.OPENAI_MODEL) &&
+    !process.env.OPENAI_API_KEY
+  ) {
+    warnings.push(
+      'An OpenAI model is set but OPENAI_API_KEY is missing',
+    );
+  }
+
   // Validate optional boolean feature flags
   for (const varName of booleanFlagEnvVars) {
     const value = process.env[varName];
     if (value !== undefined && value !== 'true' && value !== 'false') {
       warnings.push(`${varName} should be "true" or "false" (received: ${value})`);
+    }
+  }
+
+  for (const varName of positiveIntegerEnvVars) {
+    const value = process.env[varName];
+    if (value === undefined) continue;
+
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed.toString() !== value) {
+      warnings.push(`${varName} should be a positive integer (received: ${value})`);
     }
   }
 
