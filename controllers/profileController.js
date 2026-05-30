@@ -39,6 +39,27 @@ const PROFILE_LIST_FIELDS = [
 ];
 
 const PROFILE_LIST_SELECT = PROFILE_LIST_FIELDS.join(' ');
+const SEARCH_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'area',
+  'around',
+  'at',
+  'by',
+  'for',
+  'from',
+  'in',
+  'local',
+  'me',
+  'my',
+  'near',
+  'nearby',
+  'of',
+  'the',
+  'to',
+  'with',
+]);
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -48,6 +69,32 @@ const normalizeSearchTerm = (value = '') =>
     .replace(/[^\w\s'-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+const parseSearchQuery = (value = '') => {
+  const normalized = normalizeSearchTerm(value).toLowerCase();
+  const terms = [
+    ...new Set(
+      normalized
+        .split(' ')
+        .filter((term) => term.length >= 2 && !SEARCH_STOP_WORDS.has(term)),
+    ),
+  ];
+  const phrases = [];
+
+  if (terms.length > 1) {
+    phrases.push(terms.join(' '));
+  }
+
+  for (let idx = 0; idx < terms.length - 1; idx += 1) {
+    phrases.push(`${terms[idx]} ${terms[idx + 1]}`);
+  }
+
+  return {
+    normalized,
+    terms,
+    phrases: [...new Set(phrases)],
+  };
+};
 
 const regexRank = (input, regex, score) => ({
   $cond: [
@@ -63,13 +110,61 @@ const regexRank = (input, regex, score) => ({
   ],
 });
 
-const buildProfileSearchBaseStages = ({ filter, searchTerm }) => {
-  const escapedSearchTerm = escapeRegex(searchTerm);
-  const exactRegex = `^${escapedSearchTerm}$`;
-  const wordExactRegex = `(^|\\s)${escapedSearchTerm}(\\s|$)`;
-  const prefixRegex = `\\b${escapedSearchTerm}`;
-  const containsRegex = escapedSearchTerm;
+const buildSearchRankExpressions = ({
+  terms,
+  phrases,
+  keywordTextExpression,
+  specialisationTextExpression,
+  allSearchableTextExpression,
+}) => {
+  const rankExpressions = [];
 
+  terms.forEach((term) => {
+    const escapedTerm = escapeRegex(term);
+    const exactRegex = `^${escapedTerm}$`;
+    const wordExactRegex = `(^|\\s)${escapedTerm}(\\s|$)`;
+    const prefixRegex = `\\b${escapedTerm}`;
+    const containsRegex = escapedTerm;
+
+    rankExpressions.push(
+      regexRank({ $ifNull: ['$name', ''] }, exactRegex, 95),
+      regexRank({ $ifNull: ['$name', ''] }, prefixRegex, 76),
+      regexRank({ $ifNull: ['$name', ''] }, containsRegex, 42),
+      regexRank(keywordTextExpression, wordExactRegex, 82),
+      regexRank(keywordTextExpression, prefixRegex, 66),
+      regexRank(keywordTextExpression, containsRegex, 42),
+      regexRank(specialisationTextExpression, wordExactRegex, 76),
+      regexRank(specialisationTextExpression, prefixRegex, 60),
+      regexRank(specialisationTextExpression, containsRegex, 38),
+      regexRank({ $ifNull: ['$location', ''] }, exactRegex, 72),
+      regexRank({ $ifNull: ['$location', ''] }, prefixRegex, 58),
+      regexRank({ $ifNull: ['$location', ''] }, containsRegex, 36),
+      regexRank({ $ifNull: ['$description', ''] }, prefixRegex, 12),
+      regexRank({ $ifNull: ['$description', ''] }, containsRegex, 6),
+      regexRank(allSearchableTextExpression, containsRegex, 3),
+    );
+  });
+
+  phrases.forEach((phrase) => {
+    const escapedPhrase = escapeRegex(phrase);
+    const phraseRegex = `\\b${escapedPhrase}\\b`;
+    const phrasePrefixRegex = `\\b${escapedPhrase}`;
+
+    rankExpressions.push(
+      regexRank({ $ifNull: ['$name', ''] }, phrasePrefixRegex, 95),
+      regexRank(keywordTextExpression, phraseRegex, 115),
+      regexRank(keywordTextExpression, phrasePrefixRegex, 92),
+      regexRank(specialisationTextExpression, phraseRegex, 105),
+      regexRank(specialisationTextExpression, phrasePrefixRegex, 84),
+      regexRank({ $ifNull: ['$description', ''] }, phraseRegex, 24),
+      regexRank(allSearchableTextExpression, phraseRegex, 12),
+    );
+  });
+
+  return rankExpressions;
+};
+
+const buildProfileSearchBaseStages = ({ filter, searchParts }) => {
   const keywordTextExpression = {
     $reduce: {
       input: { $ifNull: ['$keywords', []] },
@@ -105,29 +200,20 @@ const buildProfileSearchBaseStages = ({ filter, searchTerm }) => {
       { $ifNull: ['$description', ''] },
     ],
   };
+  const searchRankExpressions = buildSearchRankExpressions({
+    terms: searchParts.terms,
+    phrases: searchParts.phrases,
+    keywordTextExpression,
+    specialisationTextExpression,
+    allSearchableTextExpression,
+  });
 
   return [
     { $match: filter },
     {
       $addFields: {
         searchRank: {
-          $add: [
-            regexRank({ $ifNull: ['$name', ''] }, exactRegex, 120),
-            regexRank({ $ifNull: ['$name', ''] }, prefixRegex, 100),
-            regexRank({ $ifNull: ['$name', ''] }, containsRegex, 70),
-            regexRank(keywordTextExpression, wordExactRegex, 90),
-            regexRank(keywordTextExpression, prefixRegex, 75),
-            regexRank(keywordTextExpression, containsRegex, 55),
-            regexRank(specialisationTextExpression, wordExactRegex, 70),
-            regexRank(specialisationTextExpression, prefixRegex, 58),
-            regexRank(specialisationTextExpression, containsRegex, 38),
-            regexRank({ $ifNull: ['$location', ''] }, exactRegex, 55),
-            regexRank({ $ifNull: ['$location', ''] }, prefixRegex, 45),
-            regexRank({ $ifNull: ['$location', ''] }, containsRegex, 28),
-            regexRank({ $ifNull: ['$description', ''] }, prefixRegex, 12),
-            regexRank({ $ifNull: ['$description', ''] }, containsRegex, 6),
-            regexRank(allSearchableTextExpression, containsRegex, 4),
-          ],
+          $add: searchRankExpressions,
         },
       },
     },
@@ -135,7 +221,7 @@ const buildProfileSearchBaseStages = ({ filter, searchTerm }) => {
   ];
 };
 
-const buildProfileSearchAggregation = ({ filter, searchTerm, skip, limit }) => {
+const buildProfileSearchAggregation = ({ filter, searchParts, skip, limit }) => {
   const project = PROFILE_LIST_FIELDS.reduce(
     (fields, field) => ({
       ...fields,
@@ -148,7 +234,7 @@ const buildProfileSearchAggregation = ({ filter, searchTerm, skip, limit }) => {
   );
 
   return [
-    ...buildProfileSearchBaseStages({ filter, searchTerm }),
+    ...buildProfileSearchBaseStages({ filter, searchParts }),
     { $sort: { searchRank: -1, rating: -1, numReviews: -1 } },
     { $skip: skip },
     { $limit: limit },
@@ -170,8 +256,8 @@ const getAllProfiles = asyncHandler(async (req, res) => {
 
   // Build filter from query parameters
   const filter = {};
-  const searchTerm = normalizeSearchTerm(req.query.search || '');
-  const hasSearch = searchTerm.length > 0;
+  const searchParts = parseSearchQuery(req.query.search || '');
+  const hasSearch = searchParts.terms.length > 0;
 
   // Additional filters (can be combined with search)
   if (req.query.location) {
@@ -188,13 +274,13 @@ const getAllProfiles = asyncHandler(async (req, res) => {
     profilesQuery = Profile.aggregate(
       buildProfileSearchAggregation({
         filter,
-        searchTerm,
+        searchParts,
         skip,
         limit,
       }),
     );
     totalQuery = Profile.aggregate([
-      ...buildProfileSearchBaseStages({ filter, searchTerm }),
+      ...buildProfileSearchBaseStages({ filter, searchParts }),
       { $count: 'total' },
     ]);
   } else {
