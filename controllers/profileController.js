@@ -23,6 +23,159 @@ const isOnboardingTutorialEnforced = () => {
   return process.env.ONBOARDING_TUTORIAL_ENFORCED === 'true';
 };
 
+const PROFILE_LIST_FIELDS = [
+  'name',
+  'profileImage',
+  'specialisation',
+  'location',
+  'rating',
+  'numReviews',
+  'description',
+  'keywords',
+  'specialisationOne',
+  'specialisationTwo',
+  'specialisationThree',
+  'specialisationFour',
+];
+
+const PROFILE_LIST_SELECT = PROFILE_LIST_FIELDS.join(' ');
+
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeSearchTerm = (value = '') =>
+  value
+    .trim()
+    .replace(/[^\w\s'-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildProfileSearchAggregation = ({ filter, searchTerm, skip, limit }) => {
+  const normalizedSearchTerm = normalizeSearchTerm(searchTerm);
+  const escapedSearchTerm = escapeRegex(normalizedSearchTerm || searchTerm.trim());
+  const exactRegex = `^${escapedSearchTerm}$`;
+  const prefixRegex = `\\b${escapedSearchTerm}`;
+  const containsRegex = escapedSearchTerm;
+
+  const textFieldExpression = {
+    $concat: [
+      { $ifNull: ['$name', ''] },
+      ' ',
+      { $ifNull: ['$location', ''] },
+      ' ',
+      { $ifNull: ['$specialisation', ''] },
+      ' ',
+      { $ifNull: ['$specialisationOne', ''] },
+      ' ',
+      { $ifNull: ['$specialisationTwo', ''] },
+      ' ',
+      { $ifNull: ['$specialisationThree', ''] },
+      ' ',
+      { $ifNull: ['$specialisationFour', ''] },
+      ' ',
+      {
+        $reduce: {
+          input: { $ifNull: ['$keywords', []] },
+          initialValue: '',
+          in: { $concat: ['$$value', ' ', '$$this'] },
+        },
+      },
+    ],
+  };
+
+  const project = PROFILE_LIST_FIELDS.reduce(
+    (fields, field) => ({
+      ...fields,
+      [field]: 1,
+    }),
+    {
+      score: 1,
+      searchRank: 1,
+    },
+  );
+
+  return [
+    { $match: filter },
+    {
+      $addFields: {
+        score: { $meta: 'textScore' },
+        searchRank: {
+          $add: [
+            {
+              $cond: [
+                {
+                  $regexMatch: {
+                    input: { $ifNull: ['$name', ''] },
+                    regex: exactRegex,
+                    options: 'i',
+                  },
+                },
+                100,
+                0,
+              ],
+            },
+            {
+              $cond: [
+                {
+                  $regexMatch: {
+                    input: { $ifNull: ['$name', ''] },
+                    regex: prefixRegex,
+                    options: 'i',
+                  },
+                },
+                80,
+                0,
+              ],
+            },
+            {
+              $cond: [
+                {
+                  $regexMatch: {
+                    input: textFieldExpression,
+                    regex: exactRegex,
+                    options: 'i',
+                  },
+                },
+                60,
+                0,
+              ],
+            },
+            {
+              $cond: [
+                {
+                  $regexMatch: {
+                    input: textFieldExpression,
+                    regex: prefixRegex,
+                    options: 'i',
+                  },
+                },
+                45,
+                0,
+              ],
+            },
+            {
+              $cond: [
+                {
+                  $regexMatch: {
+                    input: textFieldExpression,
+                    regex: containsRegex,
+                    options: 'i',
+                  },
+                },
+                20,
+                0,
+              ],
+            },
+          ],
+        },
+      },
+    },
+    { $sort: { searchRank: -1, score: -1, rating: -1, numReviews: -1 } },
+    { $skip: skip },
+    { $limit: limit },
+    { $project: project },
+  ];
+};
+
 // @description: Get All the Profiles with pagination and filtering
 // @route: GET /api/profiles
 // @access: Public
@@ -52,23 +205,30 @@ const getAllProfiles = asyncHandler(async (req, res) => {
     filter.specialisation = new RegExp(req.query.specialisation.trim(), 'i');
   }
 
-  // Build query
-  let query = Profile.find(filter).select(
-    'name profileImage specialisation location rating numReviews description keywords specialisationOne specialisationTwo specialisationThree specialisationFour'
-  );
+  const hasSearch = !!filter.$text;
+  let profilesQuery;
 
-  // Sort by text score if search is active, otherwise sort by rating
-  if (filter.$text) {
-    query = query
-      .select({ score: { $meta: 'textScore' } })
-      .sort({ score: { $meta: 'textScore' }, rating: -1 });
+  if (hasSearch) {
+    profilesQuery = Profile.aggregate(
+      buildProfileSearchAggregation({
+        filter,
+        searchTerm: req.query.search,
+        skip,
+        limit,
+      }),
+    );
   } else {
-    query = query.sort({ rating: -1, numReviews: -1 });
+    profilesQuery = Profile.find(filter)
+      .select(PROFILE_LIST_SELECT)
+      .sort({ rating: -1, numReviews: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
   }
 
   // Execute queries in parallel for better performance
   const [profiles, total] = await Promise.all([
-    query.skip(skip).limit(limit).lean(),
+    profilesQuery,
     Profile.countDocuments(filter),
   ]);
 
@@ -77,7 +237,7 @@ const getAllProfiles = asyncHandler(async (req, res) => {
     page,
     pages: Math.ceil(total / limit),
     total,
-    hasSearch: !!req.query.search,
+    hasSearch,
   });
 });
 
