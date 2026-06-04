@@ -4,7 +4,7 @@ import path from 'path';
 import cloudinary from 'cloudinary';
 import UserProfileImages from '../models/imageUploadModal.js';
 import User from '../models/userModel.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, requireActiveSubscription } from '../middleware/authMiddleware.js';
 import {
   deleteProfileImage,
   userProfileImageUpload,
@@ -52,6 +52,6 @@ router.post(
 );
 
 //Delete a single PROFILE image
-router.route('/profile-image/:id').delete(protect, deleteProfileImage);
+router.route('/profile-image/:id').delete(protect, requireActiveSubscription, deleteProfileImage);
 
 export default router;

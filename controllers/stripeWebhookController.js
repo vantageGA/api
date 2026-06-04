@@ -30,6 +30,7 @@ export const stripeWebhookHandler = async (req, res) => {
         if (user) {
           user.isSubscribed = true;
           user.stripeSubscriptionId = subscriptionId;
+          user.paymentStatus = 'active';
           
           const sub = await stripe.subscriptions.retrieve(subscriptionId);
           user.plan = sub.items.data[0].price.id;
@@ -45,6 +46,7 @@ export const stripeWebhookHandler = async (req, res) => {
         const user = await User.findOne({ stripeCustomerId: customerId });
         if (user) {
           user.isSubscribed = true;
+          user.paymentStatus = 'active';
           if (invoice.subscription) {
             const sub = await stripe.subscriptions.retrieve(invoice.subscription);
             user.currentPeriodEnd = new Date(sub.current_period_end * 1000);
@@ -84,6 +86,7 @@ export const stripeWebhookHandler = async (req, res) => {
         const user = await User.findOne({ stripeCustomerId: customerId });
         if (user) {
           user.isSubscribed = (subscription.status === 'active' || subscription.status === 'trialing');
+          user.paymentStatus = user.isSubscribed ? 'active' : subscription.status;
           user.plan = subscription.items.data[0].price.id;
           user.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
           await user.save();

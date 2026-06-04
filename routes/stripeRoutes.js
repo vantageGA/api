@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, optionalProtect, hasActiveSubscription } from '../middleware/authMiddleware.js';
 import {
   createCheckoutSession,
   createSubscription,
@@ -14,7 +14,7 @@ import { checkoutSessionSchema, registerSchema } from '../validators/userValidat
 
 const router = express.Router();
 
-router.post('/checkout-session', checkoutLimiter, async (req, res) => {
+router.post('/checkout-session', checkoutLimiter, optionalProtect, async (req, res) => {
   try {
     const { error, value } = checkoutSessionSchema.validate(req.body, {
       stripUnknown: true,
@@ -33,15 +33,15 @@ router.post('/checkout-session', checkoutLimiter, async (req, res) => {
 
     if (user) {
       // User already exists - check their status
-      if (user.isSubscribed) {
+      if (hasActiveSubscription(user)) {
         // Already has active subscription
         return res.status(400).json({
           error: 'You already have an active subscription. Please login to manage your account.'
         });
       }
 
-      if (user.isConfirmed) {
-        // Account exists and is confirmed, but not subscribed - direct to login
+      if (user.isConfirmed && req.user?._id?.toString() !== user._id.toString()) {
+        // Account exists and is confirmed, but the request is not from that logged-in user.
         return res.status(400).json({
           error: 'An account with this email already exists. Please login to subscribe.'
         });
@@ -74,7 +74,7 @@ router.post('/checkout-session', checkoutLimiter, async (req, res) => {
         isSubscribed: false,
         plan: null,
         currentPeriodEnd: null,
-        paymentStatus: 'active'
+        paymentStatus: 'pending'
       });
 
       await user.save();
@@ -103,6 +103,10 @@ router.post('/checkout-session', checkoutLimiter, async (req, res) => {
     }
 
     const session = await createCheckoutSession(user, plan);
+    if (!user.isSubscribed && user.paymentStatus !== 'pending') {
+      user.paymentStatus = 'pending';
+      await user.save();
+    }
     res.json({ url: session.url });
   } catch (error) {
     const isPriceConfigError = isStripePriceConfigurationError(error);

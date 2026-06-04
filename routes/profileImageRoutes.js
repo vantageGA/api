@@ -4,7 +4,7 @@ import path from 'path';
 import cloudinary from 'cloudinary';
 import ProfileImages from '../models/profileImageModel.js';
 import Profile from '../models/profileModel.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, requireActiveSubscription } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -40,7 +40,7 @@ const upload = multer({
 // @route: POST /api/profileUpload
 // @access: Private
 
-router.post('/', protect, upload.single('profileImage'), async (req, res) => {
+router.post('/', protect, requireActiveSubscription, upload.single('profileImage'), async (req, res) => {
   try {
     if (!req.file?.path) {
       res.status(400);

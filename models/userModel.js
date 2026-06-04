@@ -72,8 +72,8 @@ const userSchema = mongoose.Schema(
       type: Date,
     },
     paymentStatus: {
-      type: String, // 'active', 'failed', 'canceled'
-      default: 'active',
+      type: String, // 'pending', 'active', 'failed', 'canceled'
+      default: 'pending',
     },
   },
   {

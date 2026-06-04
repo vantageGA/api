@@ -17,7 +17,7 @@ import {
 } from '../controllers/profileController.js';
 import { createProfileAIDraft } from '../controllers/profileDraftController.js';
 
-import { protect, admin } from '../middleware/authMiddleware.js';
+import { protect, admin, requireActiveSubscription } from '../middleware/authMiddleware.js';
 import { profileDraftLimiter, reviewLimiter } from '../middleware/rateLimitMiddleware.js';
 import { validate } from '../middleware/validationMiddleware.js';
 import {
@@ -37,7 +37,7 @@ const router = express.Router();
 router
   .route('/profiles')
   .get(validate(paginationSchema, 'query'), getAllProfiles)
-  .post(protect, createProfile);
+  .post(protect, requireActiveSubscription, createProfile);
 
 // Get all profiles ADMIN route (must be above /profiles/:id to avoid matching "admin" as an ID)
 router.route('/profiles/admin').get(protect, admin, validate(paginationSchema, 'query'), getAllProfilesAdmin);
@@ -56,6 +56,7 @@ router
   .route('/profile/ai-draft')
   .post(
     protect,
+    requireActiveSubscription,
     profileDraftLimiter,
     validate(profileDraftRequestSchema),
     createProfileAIDraft,
@@ -77,10 +78,18 @@ router
   );
 
 // 🔴 FRONTEND IMPACT: Route changed from PUT /api/profile/:id to PUT /api/profile
-router.route('/profile').get(protect, getProfile).put(protect, validate(updateProfileSchema), updateProfile);
+router
+  .route('/profile')
+  .get(protect, getProfile)
+  .put(protect, requireActiveSubscription, validate(updateProfileSchema), updateProfile);
 router
   .route('/profile/onboarding-tutorial')
-  .patch(protect, validate(updateOnboardingTutorialSchema), updateOnboardingTutorialStatus);
+  .patch(
+    protect,
+    requireActiveSubscription,
+    validate(updateOnboardingTutorialSchema),
+    updateOnboardingTutorialStatus,
+  );
 
 // UPDATE number of profile clicks
 router.route('/profile-clicks').put(validate(updateClicksSchema), updateProfileClicks);

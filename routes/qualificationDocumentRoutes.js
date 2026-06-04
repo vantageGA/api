@@ -8,7 +8,7 @@ import {
   downloadQualificationDocumentAdmin,
   reviewQualificationDocument,
 } from '../controllers/qualificationDocumentController.js';
-import { protect, admin } from '../middleware/authMiddleware.js';
+import { protect, admin, requireActiveSubscription } from '../middleware/authMiddleware.js';
 import { handleQualificationDocumentUpload } from '../middleware/qualificationDocumentUploadMiddleware.js';
 import { validate } from '../middleware/validationMiddleware.js';
 import {
@@ -29,6 +29,7 @@ router
   .get(protect, validate(qualificationDocumentListQuerySchema, 'query'), getQualificationDocuments)
   .post(
     protect,
+    requireActiveSubscription,
     qualificationDocumentMutationLimiter,
     handleQualificationDocumentUpload,
     uploadQualificationDocument,
@@ -38,6 +39,7 @@ router
   .route('/profile/qualification-documents/:id')
   .put(
     protect,
+    requireActiveSubscription,
     qualificationDocumentMutationLimiter,
     validate(qualificationDocumentIdSchema, 'params'),
     handleQualificationDocumentUpload,
@@ -45,6 +47,7 @@ router
   )
   .delete(
     protect,
+    requireActiveSubscription,
     qualificationDocumentMutationLimiter,
     validate(qualificationDocumentIdSchema, 'params'),
     deleteQualificationDocument,

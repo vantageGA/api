@@ -26,6 +26,20 @@ import {
 } from '../services/emailService.js';
 import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
 
+const authUserResponse = (user, extra = {}) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  isAdmin: user.isAdmin,
+  isConfirmed: user.isConfirmed,
+  isSubscribed: user.isSubscribed,
+  plan: user.plan,
+  currentPeriodEnd: user.currentPeriodEnd,
+  paymentStatus: user.paymentStatus,
+  token: generateToken(user._id),
+  ...extra,
+});
+
 // @description: Get All the users Profiles
 // @route: GET /api/users
 // @access: Admin
@@ -82,13 +96,7 @@ const authUser = asyncHandler(async (req, res) => {
       userAgent: req.get('user-agent')
     });
 
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isAdmin: user.isAdmin,
-      token: generateToken(user._id),
-    });
+    res.json(authUserResponse(user));
   } else {
     // Log failed login attempt
     logSecurityEvent(SecurityEvents.LOGIN_FAILED, email, {
@@ -153,12 +161,7 @@ const registerUser = asyncHandler(async (req, res) => {
       });
 
       res.status(201).json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isAdmin: user.isAdmin,
-        isConfirmed: user.isConfirmed,
-        token: generateToken(user._id),
+        ...authUserResponse(user),
         message: 'Registration successful. Please check your email to verify your account.'
       });
     } catch (emailError) {
@@ -170,12 +173,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
       // User is created but email failed - still return success
       res.status(201).json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isAdmin: user.isAdmin,
-        isConfirmed: user.isConfirmed,
-        token: generateToken(user._id),
+        ...authUserResponse(user),
         message: 'Registration successful. Verification email could not be sent. Please contact support.'
       });
     }
@@ -198,6 +196,10 @@ const getUserProfile = asyncHandler(async (req, res) => {
       email: user.email,
       isAdmin: user.isAdmin,
       isConfirmed: user.isConfirmed,
+      isSubscribed: user.isSubscribed,
+      plan: user.plan,
+      currentPeriodEnd: user.currentPeriodEnd,
+      paymentStatus: user.paymentStatus,
       profileImage: user.profileImage,
       cloudinaryId: user.cloudinaryId,
     });
@@ -303,11 +305,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   });
 
   res.json({
-    _id: updatedUser._id,
-    name: updatedUser.name,
-    email: updatedUser.email,
-    isAdmin: updatedUser.isAdmin,
-    token: generateToken(updatedUser._id),
+    ...authUserResponse(updatedUser),
     message: value.email ? 'Profile updated. Verification email sent to new address.' : 'Profile updated successfully'
   });
 });
