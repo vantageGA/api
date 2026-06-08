@@ -28,6 +28,13 @@
 ### docs/QUALIFICATION_DOCUMENT_MANUAL_TESTS.md
 - Step-by-step backend manual verification scenarios for qualification-document routes.
 
+### ../docs/subscription-login-checkout-handoff.md
+- Current source of truth for the June 2026 subscription/login/checkout regression fix.
+- Login is authentication only; successful login should not redirect to `/subscribe`.
+- Checkout creation returns only the Stripe URL; checkout success verifies `session_id` through `GET /api/checkout-session/:sessionId` before hydrating login state.
+- Login and `GET /api/users/profile` reconcile subscription state from Stripe when the user has `stripeCustomerId` or `stripeSubscriptionId`.
+- Historic paid users missing both Stripe IDs require audit/backfill; login cannot safely infer them.
+
 ### docs/KEYWORD_SEARCH_ARCHITECTURE.md
 - Replaces keyword permutation string with normalized `keywords` array.
 - Adds MongoDB text index with weighted fields (name, keywords, specialisation, location, description).
@@ -216,7 +223,9 @@
 
 ### Stripe flow
 - Checkout: `POST /api/checkout-session` creates user if needed, sends verification email, returns Stripe hosted checkout URL.
+- Checkout success: `GET /api/checkout-session/:sessionId` verifies Stripe session, syncs subscription state, and returns tokenized user payload.
 - Webhook: `POST /api/stripe/webhook` validates signature, updates subscription status on `checkout.session.completed`, `invoice.*`, `customer.subscription.*`.
+- Login and current-user profile reads also reconcile subscription state from Stripe when Stripe IDs exist.
 
 ## Where To Look First
 - Auth + user lifecycle: `routes/userRoutes.js`, `controllers/userController.js`, `models/userModel.js`, `utils/generateToken.js`.

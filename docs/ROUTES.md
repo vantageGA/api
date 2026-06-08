@@ -5,10 +5,10 @@ All routes are mounted under `/api` in `server.js` unless noted.
 ## Auth & Users
 | Method | Path | Auth | Handler | Notes |
 |---|---|---|---|---|
-| POST | `/users/login` | Public | `authUser` | Login (rate limited). |
+| POST | `/users/login` | Public | `authUser` | Login (rate limited). Auth only; does not decide subscription routing. Reconciles subscription state from Stripe before returning user data when Stripe IDs exist. |
 | POST | `/users` | Public | `registerUser` | Registration (rate limited). |
 | GET | `/users` | Admin | `getAllUsersProfile` | List all users. |
-| GET | `/users/profile` | Auth | `getUserProfile` | Current user profile. |
+| GET | `/users/profile` | Auth | `getUserProfile` | Current user profile. Reconciles subscription state from Stripe before returning user data when Stripe IDs exist. |
 | PUT | `/users/profile` | Auth | `updateUserProfile` | Update current user (email change requires verification). |
 | GET | `/user/profile/:id` | Public | `getUserProfileById` | Public user profile. |
 | GET | `/users/:id` | Admin | `getUserProfileById` | Admin view of user by id. |
@@ -80,5 +80,14 @@ All routes are mounted under `/api` in `server.js` unless noted.
 | Method | Path | Auth | Handler | Notes |
 |---|---|---|---|---|
 | POST | `/stripe/webhook` | Public | `stripeWebhookHandler` | Raw body required; signature verified. |
-| POST | `/checkout-session` | Public | `createCheckoutSession` | Creates hosted checkout (rate limited). |
+| POST | `/checkout-session` | Public/optional auth | inline checkout handler | Creates hosted Stripe checkout (rate limited). Returns only `{ url }`; does not issue login state before payment succeeds. |
+| GET | `/checkout-session/:sessionId` | Public | inline checkout verification handler | Verifies Stripe checkout success session, syncs subscription state, and returns tokenized user payload for post-payment login hydration. |
 | POST | `/create-subscription` | Auth | `createSubscription` | Creates subscription for logged-in user. |
+
+## Subscription Enforcement Notes
+
+- Login is authentication only. The frontend should route successful login to `/user-profile-edit`, not `/subscribe`.
+- Paid professional-profile actions are enforced by `requireActiveSubscription` middleware.
+- `requireActiveSubscription` allows admins, active/trialing Stripe subscriptions, and legacy `pending` only when `isSubscribed === true`.
+- It rejects inactive Stripe statuses including `canceled`, `failed`, `incomplete`, `incomplete_expired`, `past_due`, `paused`, and `unpaid`.
+- If a paid customer has no `stripeCustomerId` and no `stripeSubscriptionId` in Mongo, login/profile reads cannot reconcile them automatically from Stripe.

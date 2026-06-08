@@ -17,6 +17,26 @@ Optional:
 
 The React client must not receive OpenAI credentials.
 
+## Stripe Subscription Checkout
+
+Required for production subscription checkout:
+
+- `STRIPE_SECRET_KEY` — Stripe secret key used by the API to create checkout sessions, retrieve checkout success sessions, and reconcile subscription state.
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret used by `/api/stripe/webhook`.
+- `STRIPE_PRICE_MONTHLY` — monthly subscription price id. Must start with `price_`.
+- `STRIPE_PRICE_ANNUAL` — annual subscription price id. Must start with `price_`.
+- `FRONTEND_URL` — frontend origin used for Stripe success/cancel redirect URLs and CORS.
+
+Subscription behavior notes:
+
+- Login is authentication only. It should not redirect users to `/subscribe`.
+- Checkout creation returns only the Stripe hosted checkout URL; it must not hydrate login state before payment succeeds.
+- `/subscribe/success?session_id=...` verifies the session through `GET /api/checkout-session/:sessionId`, then hydrates login state after Stripe confirms the session.
+- Login and `GET /api/users/profile` reconcile subscription state from Stripe when the Mongo user has `stripeCustomerId` or `stripeSubscriptionId`.
+- Historic paid users missing both Stripe IDs in Mongo require audit/backfill; they cannot be safely matched from login alone.
+
+Reference: `../../docs/subscription-login-checkout-handoff.md`.
+
 ## Current .env Configuration Status
 
 ### ✅ All Required Variables Present
@@ -118,6 +138,10 @@ RESET_PASSWORD_LOCAL_URL=https://yourdomain.com  # HTTPS required!
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary account | `bodyvantage` | For image uploads |
 | `CLOUDINARY_API_KEY` | Cloudinary key | `your-key` | From Cloudinary dashboard |
 | `CLOUDINARY_SECRET` | Cloudinary secret | `your-secret` | From Cloudinary dashboard |
+| `STRIPE_SECRET_KEY` | Stripe API secret key | `sk_live_...` | Required for checkout/session reconciliation |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | `whsec_...` | Required for webhook signature verification |
+| `STRIPE_PRICE_MONTHLY` | Monthly Stripe price id | `price_...` | Required for monthly checkout |
+| `STRIPE_PRICE_ANNUAL` | Annual Stripe price id | `price_...` | Required for annual checkout |
 
 ### Optional Variables
 
