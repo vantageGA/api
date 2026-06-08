@@ -5,14 +5,37 @@ import {
   createSubscription,
   isStripePriceConfigurationError
 } from '../services/stripeService.js';
+import stripe from '../config/stripe.js';
 import User from '../models/userModel.js';
-import { generateEmailVerificationToken } from '../utils/generateToken.js';
+import generateToken, { generateEmailVerificationToken } from '../utils/generateToken.js';
 import { sendVerificationEmail } from '../services/emailService.js';
+import { syncUserSubscriptionFromStripe } from '../services/subscriptionStatusService.js';
 import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
 import { checkoutLimiter } from '../middleware/rateLimitMiddleware.js';
 import { checkoutSessionSchema, registerSchema } from '../validators/userValidator.js';
 
 const router = express.Router();
+
+const checkoutUserResponse = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  isAdmin: user.isAdmin,
+  isConfirmed: user.isConfirmed,
+  isSubscribed: user.isSubscribed,
+  plan: user.plan,
+  currentPeriodEnd: user.currentPeriodEnd,
+  paymentStatus: user.paymentStatus,
+  token: generateToken(user._id),
+});
+
+const getStripeObjectId = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  return typeof value === 'string' ? value : value.id;
+};
 
 router.post('/checkout-session', checkoutLimiter, optionalProtect, async (req, res) => {
   try {
@@ -125,6 +148,43 @@ router.post('/checkout-session', checkoutLimiter, optionalProtect, async (req, r
       error: isPriceConfigError
         ? 'Subscription checkout is temporarily unavailable. Please try again later.'
         : 'Unable to start checkout. Please try again later.'
+    });
+  }
+});
+
+router.get('/checkout-session/:sessionId', async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+    const customerId = getStripeObjectId(session.customer);
+    const subscriptionId = getStripeObjectId(session.subscription);
+
+    if (!customerId) {
+      return res.status(404).json({ error: 'Checkout session customer was not found.' });
+    }
+
+    const user = await User.findOne({ stripeCustomerId: customerId });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Checkout session user was not found.' });
+    }
+
+    if (subscriptionId && !user.stripeSubscriptionId) {
+      user.stripeSubscriptionId = subscriptionId;
+    }
+
+    const syncedUser = await syncUserSubscriptionFromStripe(user);
+
+    res.json({ user: checkoutUserResponse(syncedUser) });
+  } catch (error) {
+    logError('Checkout session verification error', error, {
+      sessionId: req.params.sessionId,
+      stripeType: error.type,
+      stripeCode: error.code,
+      stripeParam: error.param,
+    });
+
+    res.status(400).json({
+      error: 'Unable to verify checkout session. Please login to continue.',
     });
   }
 });

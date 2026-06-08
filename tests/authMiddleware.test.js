@@ -37,6 +37,18 @@ test('hasActiveSubscription rejects expired paid users', () => {
   );
 });
 
+test('hasActiveSubscription accepts legacy paid users with pending payment status', () => {
+  assert.equal(
+    hasActiveSubscription({
+      isAdmin: false,
+      isSubscribed: true,
+      paymentStatus: 'pending',
+      currentPeriodEnd: new Date(Date.now() + 60 * 60 * 1000),
+    }),
+    true,
+  );
+});
+
 test('hasActiveSubscription rejects failed subscribers who still have isSubscribed true', () => {
   assert.equal(
     hasActiveSubscription({
@@ -49,16 +61,31 @@ test('hasActiveSubscription rejects failed subscribers who still have isSubscrib
   );
 });
 
-test('hasActiveSubscription rejects pending subscribers who still have isSubscribed true', () => {
+test('hasActiveSubscription rejects canceled subscribers who still have isSubscribed true', () => {
   assert.equal(
     hasActiveSubscription({
       isAdmin: false,
       isSubscribed: true,
-      paymentStatus: 'pending',
+      paymentStatus: 'canceled',
       currentPeriodEnd: new Date(Date.now() + 60 * 60 * 1000),
     }),
     false,
   );
+});
+
+test('hasActiveSubscription rejects inactive Stripe statuses even when isSubscribed is true', () => {
+  for (const paymentStatus of ['past_due', 'unpaid', 'incomplete', 'incomplete_expired', 'paused']) {
+    assert.equal(
+      hasActiveSubscription({
+        isAdmin: false,
+        isSubscribed: true,
+        paymentStatus,
+        currentPeriodEnd: new Date(Date.now() + 60 * 60 * 1000),
+      }),
+      false,
+      `${paymentStatus} should not grant subscription access`,
+    );
+  }
 });
 
 test('requireActiveSubscription responds with 402 for unpaid users', () => {

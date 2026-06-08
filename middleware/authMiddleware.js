@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/userModel.js';
 import asyncHandler from 'express-async-handler';
+import { isAllowedSubscribedPaymentStatus } from '../utils/subscriptionStatus.js';
 
 const protect = asyncHandler(async (req, res, next) => {
   let token;
@@ -72,7 +73,7 @@ const hasActiveSubscription = (user) => {
     return false;
   }
 
-  if (user.paymentStatus && user.paymentStatus !== 'active') {
+  if (!isAllowedSubscribedPaymentStatus(user.paymentStatus)) {
     return false;
   }
 

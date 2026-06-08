@@ -24,6 +24,7 @@ import {
   sendPasswordChangedEmail,
   sendEmailChangeVerification
 } from '../services/emailService.js';
+import { syncUserSubscriptionFromStripe } from '../services/subscriptionStatusService.js';
 import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
 
 const authUserResponse = (user, extra = {}) => ({
@@ -96,7 +97,9 @@ const authUser = asyncHandler(async (req, res) => {
       userAgent: req.get('user-agent')
     });
 
-    res.json(authUserResponse(user));
+    const syncedUser = await syncUserSubscriptionFromStripe(user);
+
+    res.json(authUserResponse(syncedUser));
   } else {
     // Log failed login attempt
     logSecurityEvent(SecurityEvents.LOGIN_FAILED, email, {
@@ -190,18 +193,20 @@ const getUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
 
   if (user) {
+    const syncedUser = await syncUserSubscriptionFromStripe(user);
+
     res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isAdmin: user.isAdmin,
-      isConfirmed: user.isConfirmed,
-      isSubscribed: user.isSubscribed,
-      plan: user.plan,
-      currentPeriodEnd: user.currentPeriodEnd,
-      paymentStatus: user.paymentStatus,
-      profileImage: user.profileImage,
-      cloudinaryId: user.cloudinaryId,
+      _id: syncedUser._id,
+      name: syncedUser.name,
+      email: syncedUser.email,
+      isAdmin: syncedUser.isAdmin,
+      isConfirmed: syncedUser.isConfirmed,
+      isSubscribed: syncedUser.isSubscribed,
+      plan: syncedUser.plan,
+      currentPeriodEnd: syncedUser.currentPeriodEnd,
+      paymentStatus: syncedUser.paymentStatus,
+      profileImage: syncedUser.profileImage,
+      cloudinaryId: syncedUser.cloudinaryId,
     });
   } else {
     res.status(404);
