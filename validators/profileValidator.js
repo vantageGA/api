@@ -94,7 +94,7 @@ export const updateProfileSchema = Joi.object({
   websiteUrl: Joi.string().max(500).allow('').messages({
     'string.max': 'Website URL must not exceed 500 characters',
   }),
-  profileImage: Joi.string().max(500).messages({
+  profileImage: Joi.string().max(500).allow('').messages({
     'string.max': 'Profile image URL must not exceed 500 characters',
   }),
   description: richTextField(2000, 'Description'),

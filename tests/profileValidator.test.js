@@ -12,6 +12,15 @@ test('updateProfileSchema accepts Quill HTML when visible specialisation text is
   assert.equal(error, undefined);
 });
 
+test('updateProfileSchema accepts an empty profile image during profile text updates', () => {
+  const { error } = updateProfileSchema.validate({
+    description: '<p>Experienced trainer working across Surrey.</p>',
+    profileImage: '',
+  });
+
+  assert.equal(error, undefined);
+});
+
 test('updateProfileSchema rejects specialisation when visible text exceeds the limit', () => {
   const specialisation = `<p>${'a'.repeat(401)}</p>`;
   const { error } = updateProfileSchema.validate({ specialisation });
