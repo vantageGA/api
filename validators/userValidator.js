@@ -167,6 +167,11 @@ export const updateIsAdminSchema = Joi.object({
     })
 });
 
+export const updatePublicProfileStatusSchema = Joi.object({
+  status: Joi.string().valid('active', 'disabled', 'pending_review').required(),
+  reason: Joi.string().trim().max(500).allow('', null).optional(),
+});
+
 // MongoDB ObjectId validation helper
 export const validateObjectId = (id) => {
   const objectIdPattern = /^[0-9a-fA-F]{24}$/;

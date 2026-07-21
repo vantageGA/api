@@ -256,6 +256,12 @@ const getAllProfiles = asyncHandler(async (req, res) => {
 
   // Build filter from query parameters
   const filter = {};
+  // A disabled or pending profile remains in storage, but must never leak into
+  // the public directory. Account, payment and qualification state are untouched.
+  const publicUserIds = await User.find({ publicProfileStatus: { $in: ['active', null] } })
+    .select('_id')
+    .lean();
+  filter.user = { $in: publicUserIds.map(({ _id }) => _id) };
   const searchParts = parseSearchQuery(req.query.search || '');
   const hasSearch = searchParts.terms.length > 0;
 
@@ -359,7 +365,8 @@ const getProfileById = asyncHandler(async (req, res) => {
 
   const profile = await Profile.findById(req.params.id);
 
-  if (profile) {
+  const profileOwner = profile && await User.findById(profile.user).select('publicProfileStatus').lean();
+  if (profile && (!profileOwner?.publicProfileStatus || profileOwner.publicProfileStatus === 'active')) {
     res.json(profile);
   } else {
     res.status(404);
@@ -839,6 +846,14 @@ const getAllProfileImagesPublic = asyncHandler(async (req, res) => {
   if (!validateObjectId(req.params.id)) {
     res.status(400);
     throw new Error('Invalid user ID format');
+  }
+
+  const profileOwner = await User.findById(req.params.id)
+    .select('publicProfileStatus')
+    .lean();
+  if (!profileOwner || (profileOwner.publicProfileStatus && profileOwner.publicProfileStatus !== 'active')) {
+    res.status(404);
+    throw new Error('Profile not found');
   }
 
   const page = parseInt(req.query.page) || 1;

@@ -16,13 +16,15 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   updateIsAdminSchema,
+  updatePublicProfileStatusSchema,
   validateObjectId
 } from '../validators/userValidator.js';
 import {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendPasswordChangedEmail,
-  sendEmailChangeVerification
+  sendEmailChangeVerification,
+  sendProfileReactivatedEmail,
 } from '../services/emailService.js';
 import { syncUserSubscriptionFromStripe } from '../services/subscriptionStatusService.js';
 import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
@@ -37,6 +39,8 @@ const authUserResponse = (user, extra = {}) => ({
   plan: user.plan,
   currentPeriodEnd: user.currentPeriodEnd,
   paymentStatus: user.paymentStatus,
+  publicProfileStatus: user.publicProfileStatus,
+  publicProfileStatusReason: user.publicProfileStatusReason,
   token: generateToken(user._id),
   ...extra,
 });
@@ -45,7 +49,9 @@ const authUserResponse = (user, extra = {}) => ({
 // @route: GET /api/users
 // @access: Admin
 const getAllUsersProfile = asyncHandler(async (req, res) => {
-  const users = await User.find({});
+  const users = await User.find({})
+    .populate('publicProfileStatusHistory.changedBy', 'name email')
+    .populate('publicProfileStatusUpdatedBy', 'name email');
   if (users) {
     res.json(users);
   } else {
@@ -205,6 +211,8 @@ const getUserProfile = asyncHandler(async (req, res) => {
       plan: syncedUser.plan,
       currentPeriodEnd: syncedUser.currentPeriodEnd,
       paymentStatus: syncedUser.paymentStatus,
+      publicProfileStatus: syncedUser.publicProfileStatus,
+      publicProfileStatusReason: syncedUser.publicProfileStatusReason,
       profileImage: syncedUser.profileImage,
       cloudinaryId: syncedUser.cloudinaryId,
     });
@@ -327,9 +335,9 @@ const getUserProfileById = asyncHandler(async (req, res) => {
 
   // Only select public fields
   const userProfile = await User.findById(req.params.id)
-    .select('name profileImage isConfirmed createdAt');
+    .select('name profileImage isConfirmed createdAt publicProfileStatus');
 
-  if (userProfile) {
+  if (userProfile && (!userProfile.publicProfileStatus || userProfile.publicProfileStatus === 'active')) {
     res.json(userProfile);
   } else {
     res.status(404);
@@ -490,6 +498,62 @@ const updateIsAdmin = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('User not found');
   }
+});
+
+// @description: Change public profile visibility without touching the account,
+// qualification approval, subscription/payment records, or documents.
+// @route: PATCH /api/users/:id/public-profile-status
+// @access: Private/Admin
+const updatePublicProfileStatus = asyncHandler(async (req, res) => {
+  if (!validateObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error('Invalid user ID format');
+  }
+
+  const { error, value } = updatePublicProfileStatusSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false,
+  });
+  if (error) {
+    res.status(400);
+    throw new Error(error.details[0].message);
+  }
+  if (value.status === 'disabled' && !value.reason?.trim()) {
+    res.status(400);
+    throw new Error('A reason is required when disabling a profile');
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  const previousStatus = user.publicProfileStatus || 'active';
+  const reason = value.reason?.trim() || null;
+  user.publicProfileStatus = value.status;
+  user.publicProfileStatusReason = reason;
+  user.publicProfileStatusUpdatedAt = new Date();
+  user.publicProfileStatusUpdatedBy = req.user._id;
+  user.publicProfileStatusHistory.push({
+    status: value.status,
+    reason,
+    changedAt: user.publicProfileStatusUpdatedAt,
+    changedBy: req.user._id,
+  });
+  await user.save();
+
+  if (value.status === 'active' && previousStatus !== 'active') {
+    await sendProfileReactivatedEmail(user);
+  }
+
+  res.json({
+    _id: user._id,
+    publicProfileStatus: user.publicProfileStatus,
+    publicProfileStatusReason: user.publicProfileStatusReason,
+    publicProfileStatusUpdatedAt: user.publicProfileStatusUpdatedAt,
+    publicProfileStatusHistory: user.publicProfileStatusHistory,
+  });
 });
 
 const userForgotPassword = asyncHandler(async (req, res) => {
@@ -747,6 +811,7 @@ export {
   getUserProfileById,
   deleteUser,
   updateIsAdmin,
+  updatePublicProfileStatus,
   userForgotPassword,
   updateUserProfilePassword,
   verifyEmail,

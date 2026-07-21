@@ -75,6 +75,39 @@ const userSchema = mongoose.Schema(
       type: String, // 'pending', 'active', 'failed', 'canceled'
       default: 'pending',
     },
+    // Deliberately separate from account, qualification and payment states.
+    // This controls only whether a member's professional profile is public.
+    publicProfileStatus: {
+      type: String,
+      enum: ['active', 'disabled', 'pending_review'],
+      default: 'active',
+      index: true,
+    },
+    publicProfileStatusReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: null,
+    },
+    publicProfileStatusUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+    publicProfileStatusUpdatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    publicProfileStatusHistory: [{
+      status: {
+        type: String,
+        enum: ['active', 'disabled', 'pending_review'],
+        required: true,
+      },
+      reason: { type: String, trim: true, maxlength: 500, default: null },
+      changedAt: { type: Date, default: Date.now },
+      changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    }],
   },
   {
     timestamps: true,

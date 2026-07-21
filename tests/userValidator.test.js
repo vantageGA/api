@@ -4,6 +4,7 @@ import {
   checkoutSessionSchema,
   registerSchema,
   resetPasswordSchema,
+  updatePublicProfileStatusSchema,
 } from '../validators/userValidator.js';
 
 const hyphenPassword = 'Valid-Password1';
@@ -16,6 +17,11 @@ test('registerSchema accepts a hyphen as the required password special character
   });
 
   assert.equal(error, undefined);
+});
+
+test('updatePublicProfileStatusSchema accepts supported profile states and rejects invalid ones', () => {
+  assert.equal(updatePublicProfileStatusSchema.validate({ status: 'pending_review' }).error, undefined);
+  assert.ok(updatePublicProfileStatusSchema.validate({ status: 'suspended' }).error);
 });
 
 test('resetPasswordSchema accepts a hyphen as the required password special character', () => {

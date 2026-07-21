@@ -8,6 +8,7 @@ import {
   getUserProfileById,
   deleteUser,
   updateIsAdmin,
+  updatePublicProfileStatus,
   userForgotPassword,
   updateUserProfilePassword,
   verifyEmail,
@@ -51,6 +52,8 @@ router
   .route('/users/:id')
   .get(protect, admin, getUserProfileById) // FIXED: was incorrectly using getUserProfile
   .delete(protect, admin, deleteUser);
+
+router.patch('/users/:id/public-profile-status', protect, admin, updatePublicProfileStatus);
 
 // Public profile view and admin update
 router

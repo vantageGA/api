@@ -192,3 +192,21 @@ export const sendEmailChangeVerification = async (newEmail, verificationToken, u
     throw new Error('Failed to send email change verification');
   }
 };
+
+export const sendProfileReactivatedEmail = async (user) => {
+  if (!user?.email) return null;
+
+  try {
+    return await getTransporter().sendMail({
+      from: '"Body Vantage" <info@bodyvantage.co.uk>',
+      to: user.email,
+      bcc: 'info@bodyvantage.co.uk',
+      subject: 'Your Body Vantage profile has been reactivated',
+      text: `Hi ${user.name}, your Body Vantage profile has been reactivated and is visible in the public directory again.`,
+      html: `<h1>Hi ${escapeHtml(user.name)}</h1><p>Your Body Vantage profile has been reactivated and is visible in the public directory again.</p><p>Thank you, Body Vantage management</p>`,
+    });
+  } catch (error) {
+    console.error('Failed to send profile reactivation email:', error);
+    return null;
+  }
+};
