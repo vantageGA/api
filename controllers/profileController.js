@@ -3,7 +3,6 @@ import Profile from '../models/profileModel.js';
 import ProfileImages from '../models/profileImageModel.js';
 import UserReviewer from '../models/userReviewerModel.js';
 import User from '../models/userModel.js';
-import { sendReviewNotification } from '../utils/emailService.js';
 import { logSecurityEvent, SecurityEvents } from '../utils/auditLogger.js';
 import {
   updateProfileStats,
@@ -14,6 +13,7 @@ import {
   saveProfileQualificationSummary,
 } from '../utils/profileHelpers.js';
 import { validateObjectId } from '../validators/commonValidators.js';
+import { isPublicReview, screenReview } from '../services/reviewModerationService.js';
 
 const isOnboardingTutorialEnforced = () => {
   if (process.env.ONBOARDING_TUTORIAL_ENFORCED === undefined) {
@@ -381,7 +381,9 @@ const getProfileById = asyncHandler(async (req, res) => {
 
   const profileOwner = profile && await User.findById(profile.user).select('publicProfileStatus').lean();
   if (profile && (!profileOwner?.publicProfileStatus || profileOwner.publicProfileStatus === 'active')) {
-    res.json(profile);
+    const publicProfile = profile.toObject();
+    publicProfile.reviews = publicProfile.reviews.filter(isPublicReview);
+    res.json(publicProfile);
   } else {
     res.status(404);
     throw new Error('Profile not found');
@@ -653,48 +655,6 @@ const deleteProfile = asyncHandler(async (req, res) => {
   }
 });
 
-// @description: Delete a single review
-// @route: DELETE /api/profiles/:id/reviews
-// @access: PRIVATE/Admin
-// 🔴 FRONTEND IMPACT: reviewId now expected in body, not as URL param
-const deleteReview = asyncHandler(async (req, res) => {
-  const { reviewId } = req.body;
-
-  // Validate ObjectId formats
-  if (!validateObjectId(req.params.id) || !validateObjectId(reviewId)) {
-    res.status(400);
-    throw new Error('Invalid ID format');
-  }
-
-  // Get the profile
-  const profile = await Profile.findById(req.params.id);
-
-  if (!profile) {
-    res.status(404);
-    throw new Error('Profile not found');
-  }
-
-  // Find and remove the review
-  const reviewIndex = profile.reviews.findIndex(
-    (r) => r._id.toString() === reviewId
-  );
-
-  if (reviewIndex === -1) {
-    res.status(404);
-    throw new Error('Review not found');
-  }
-
-  profile.reviews.splice(reviewIndex, 1);
-
-  // Recalculate stats using helper
-  updateProfileStats(profile);
-
-  // Single atomic save (no race conditions)
-  await profile.save();
-
-  res.json({ message: 'Review successfully removed' });
-});
-
 // @description: CREATE a new review
 // @route: POST /api/profiles/:id/reviews
 // @access: Private
@@ -702,6 +662,11 @@ const deleteReview = asyncHandler(async (req, res) => {
 const createProfileReview = asyncHandler(async (req, res) => {
   const { rating, comment, showName, userProfileId, acceptConditions } =
     req.body;
+
+  if (req.reviewer?._id.toString() !== req.params.id) {
+    res.status(403);
+    throw new Error('You can only submit a review from your own reviewer account');
+  }
 
   // Validate reviewer ID format
   if (!validateObjectId(req.params.id)) {
@@ -733,7 +698,7 @@ const createProfileReview = asyncHandler(async (req, res) => {
     throw new Error('Profile not found');
   }
 
-  // Get target user for email notification
+  // Confirm the target account still exists.
   const user = await User.findById(userProfileId);
   if (!user) {
     res.status(404);
@@ -775,6 +740,27 @@ const createProfileReview = asyncHandler(async (req, res) => {
     hasAccepted: true,
   };
 
+  const screening = screenReview(
+    comment,
+    profile.reviews.map((existingReview) => existingReview.comment),
+  );
+  review.status = screening.flags.length ? 'under_moderation' : 'pending_review';
+  review.screening = screening;
+  review.moderationHistory = [
+    {
+      action: 'submitted',
+      toStatus: 'pending_review',
+      createdAt: new Date(),
+    },
+    {
+      action: 'screened',
+      fromStatus: 'pending_review',
+      toStatus: review.status,
+      reason: screening.flags.length ? screening.flags.join(', ') : null,
+      createdAt: new Date(),
+    },
+  ];
+
   profile.reviews.push(review);
 
   // Update stats using helper
@@ -786,15 +772,10 @@ const createProfileReview = asyncHandler(async (req, res) => {
   reviewerProfile.hasSubmittedReview = true;
   await reviewerProfile.save();
 
-  // Send email notification (non-blocking - don't fail if email fails)
-  try {
-    await sendReviewNotification(user.email, user.name, review.name, review.comment);
-  } catch (emailError) {
-    // Log error but don't fail the request - review was created successfully
-    console.error('Failed to send review notification:', emailError.message);
-  }
-
-  res.status(201).json({ message: 'Review added successfully' });
+  res.status(201).json({
+    message: 'Review submitted for moderation',
+    status: review.status,
+  });
 });
 
 // @description: Update Qualification to true/false
@@ -904,7 +885,6 @@ export {
   deleteProfile,
   createProfileReview,
   updateProfileQualificationToTrue,
-  deleteReview,
   updateProfileClicks,
   getAllProfileImages,
   getAllProfileImagesPublic,

@@ -17,8 +17,13 @@ export const calculateProfileRating = (reviews) => {
  * @param {Object} profile - Mongoose profile document
  */
 export const updateProfileStats = (profile) => {
-  profile.numReviews = profile.reviews.length;
-  profile.rating = calculateProfileRating(profile.reviews);
+  // Reviews created before moderation was introduced are already public and
+  // therefore remain included. New reviews count only once published.
+  const publicReviews = profile.reviews.filter(
+    (review) => !review.status || review.status === 'published',
+  );
+  profile.numReviews = publicReviews.length;
+  profile.rating = calculateProfileRating(publicReviews);
 };
 
 /**

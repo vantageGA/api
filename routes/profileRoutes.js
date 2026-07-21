@@ -9,15 +9,22 @@ import {
   deleteProfile,
   createProfileReview,
   updateProfileQualificationToTrue,
-  deleteReview,
   updateProfileClicks,
   getAllProfileImages,
   getAllProfileImagesPublic,
   updateOnboardingTutorialStatus,
 } from '../controllers/profileController.js';
 import { createProfileAIDraft } from '../controllers/profileDraftController.js';
+import {
+  bulkApproveReviews,
+  getModerationReviews,
+  moderateReview,
+  amendReview,
+  getReviewerReviews,
+  removeReviewWithAudit,
+} from '../controllers/reviewModerationController.js';
 
-import { protect, admin, requireActiveSubscription } from '../middleware/authMiddleware.js';
+import { protect, protectReviewer, admin, requireActiveSubscription } from '../middleware/authMiddleware.js';
 import { profileDraftLimiter, reviewLimiter } from '../middleware/rateLimitMiddleware.js';
 import { validate } from '../middleware/validationMiddleware.js';
 import {
@@ -30,6 +37,13 @@ import {
   deleteReviewSchema,
   paginationSchema,
 } from '../validators/profileValidator.js';
+import {
+  bulkApproveReviewsSchema,
+  reviewModerationActionSchema,
+  reviewModerationListSchema,
+  reviewModerationParamsSchema,
+  amendReviewSchema,
+} from '../validators/reviewModerationValidator.js';
 
 const router = express.Router();
 
@@ -41,6 +55,34 @@ router
 
 // Get all profiles ADMIN route (must be above /profiles/:id to avoid matching "admin" as an ID)
 router.route('/profiles/admin').get(protect, admin, validate(paginationSchema, 'query'), getAllProfilesAdmin);
+
+router
+  .route('/profiles/admin/reviews')
+  .get(protect, admin, validate(reviewModerationListSchema, 'query'), getModerationReviews);
+router
+  .route('/profiles/admin/reviews/bulk-approve')
+  .post(protect, admin, validate(bulkApproveReviewsSchema), bulkApproveReviews);
+router
+  .route('/profiles/admin/:profileId/reviews/:reviewId/moderate')
+  .patch(
+    protect,
+    admin,
+    validate(reviewModerationParamsSchema, 'params'),
+    validate(reviewModerationActionSchema),
+    moderateReview,
+  );
+
+router
+  .route('/profiles/:profileId/reviews/:reviewId/amend')
+  .patch(
+    protectReviewer,
+    validate(reviewModerationParamsSchema, 'params'),
+    validate(amendReviewSchema),
+    amendReview,
+  );
+router
+  .route('/reviewers/me/reviews')
+  .get(protectReviewer, getReviewerReviews);
 
 // Delete or update specific profile ADMIN routes
 router
@@ -70,7 +112,7 @@ router
 router
   .route('/profiles/:id/reviews')
   .post(
-    protect,
+    protectReviewer,
     reviewLimiter,
     validate(profileIdSchema, 'params'),
     validate(createReviewSchema),
@@ -98,7 +140,13 @@ router.route('/profile-clicks').put(validate(updateClicksSchema), updateProfileC
 // 🔴 FRONTEND IMPACT: Route changed from DELETE /profile/review/admin/:id to DELETE /profiles/:id/reviews
 router
   .route('/profiles/:id/reviews')
-  .delete(protect, admin, validate(profileIdSchema, 'params'), validate(deleteReviewSchema), deleteReview);
+  .delete(
+    protect,
+    admin,
+    validate(profileIdSchema, 'params'),
+    validate(deleteReviewSchema),
+    removeReviewWithAudit,
+  );
 
 // GET all profile images
 router.route('/profile-images').get(protect, validate(paginationSchema, 'query'), getAllProfileImages);

@@ -7,6 +7,7 @@ Short entry points for backend work.
 - SECURITY_IMPROVEMENTS.md: Auth and user-management security updates.
 - ROUTES.md: Full API route index (methods, auth, handlers).
 - QUALIFICATION_DOCUMENT_MANUAL_TESTS.md: Manual API verification scenarios for qualification document backend flows.
+- REVIEW_MODERATION.md: Review screening, moderation transitions, audit behavior, and API endpoints.
 - ../../docs/subscription-login-checkout-handoff.md: Current subscription/login/checkout behavior, Stripe reconciliation, and continuation notes from the June 2026 regression fix.
 
 ## Keyword Search Migration

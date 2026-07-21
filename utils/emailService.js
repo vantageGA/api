@@ -120,6 +120,39 @@ export const sendReviewNotification = async (
   }
 };
 
+export const sendReviewModerationNotification = async (
+  recipientEmail,
+  recipientName,
+  outcome,
+  reason,
+  actionUrl = '',
+) => {
+  if (!transporter) throw new Error('Email transporter not initialized');
+  if (!validator.isEmail(recipientEmail)) throw new Error('Invalid recipient email address');
+
+  const safeName = sanitizeForEmail(recipientName);
+  const safeReason = sanitizeForEmail(reason);
+  const safeActionUrl = actionUrl && validator.isURL(actionUrl, { require_protocol: true })
+    ? sanitizeForEmail(actionUrl)
+    : '';
+  const amendmentRequested = outcome === 'amendment_requested';
+  const subject = amendmentRequested
+    ? 'Body Vantage - Review Amendment Requested'
+    : 'Body Vantage - Review Moderation Decision';
+  const decision = amendmentRequested
+    ? 'An administrator has asked you to amend your review before it can be published.'
+    : 'Your review was not approved for publication.';
+
+  return transporter.sendMail({
+    from: process.env.MAILER_FROM || '"Body Vantage" <info@bodyvantage.co.uk>',
+    to: recipientEmail,
+    bcc: process.env.MAILER_BCC || 'info@bodyvantage.co.uk',
+    subject,
+    text: `Hi ${safeName},\n\n${decision}\n\nReason: ${safeReason}${safeActionUrl ? `\n\nLog in to amend your review: ${safeActionUrl}` : ''}\n\nThank you,\nBody Vantage Management`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px"><h1 style="font-size:22px">Hi ${safeName}</h1><p>${decision}</p><p><strong>Reason:</strong> ${safeReason}</p>${safeActionUrl ? `<p><a href="${safeActionUrl}">Log in to amend your review</a></p>` : ''}<p>Thank you,<br><strong>Body Vantage Management</strong></p></div>`,
+  });
+};
+
 /**
  * Get email transporter for other email operations
  * @returns {Object} Nodemailer transporter

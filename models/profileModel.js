@@ -38,6 +38,64 @@ const reviewsSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    status: {
+      type: String,
+      enum: [
+        'pending_review',
+        'under_moderation',
+        'approved',
+        'rejected',
+        'amendment_requested',
+        'published',
+        'removed',
+      ],
+      index: true,
+    },
+    screening: {
+      riskLevel: {
+        type: String,
+        enum: ['low', 'medium', 'high'],
+        default: 'low',
+      },
+      flags: [{ type: String }],
+      flaggedKeywords: [{ type: String }],
+      screenedAt: { type: Date, default: null },
+    },
+    rejectionReason: { type: String, default: null },
+    amendmentMessage: { type: String, default: null },
+    moderatedAt: { type: Date, default: null },
+    moderatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    publishedAt: { type: Date, default: null },
+    moderationHistory: [
+      {
+        action: {
+          type: String,
+          enum: [
+            'submitted',
+            'screened',
+            'approved',
+            'rejected',
+            'amendment_requested',
+            'published',
+            'removed',
+          ],
+          required: true,
+        },
+        fromStatus: { type: String, default: null },
+        toStatus: { type: String, required: true },
+        reason: { type: String, default: null },
+        actor: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          default: null,
+        },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   {
     timestamps: true,
@@ -244,6 +302,7 @@ profileSchema.index({ location: 1 });
 profileSchema.index({ specialisation: 1 });
 profileSchema.index({ rating: -1, numReviews: -1 }); // Compound index for sorting
 profileSchema.index({ keywords: 1 }); // Array index for keyword queries
+profileSchema.index({ 'reviews.status': 1, 'reviews.createdAt': -1 });
 
 const Profile = mongoose.model('Profile', profileSchema);
 

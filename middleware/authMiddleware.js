@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/userModel.js';
+import UserReviewer from '../models/userReviewerModel.js';
 import asyncHandler from 'express-async-handler';
 import { isAllowedSubscribedPaymentStatus } from '../utils/subscriptionStatus.js';
 
@@ -38,6 +39,24 @@ const admin = (req, res, next) => {
     throw new Error('Not authorised as an ADMIN');
   }
 };
+
+const protectReviewer = asyncHandler(async (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization?.startsWith('Bearer ')) {
+    res.status(401);
+    throw new Error('Not authorised, no token');
+  }
+
+  try {
+    const decoded = jwt.verify(authorization.split(' ')[1], process.env.JWT_SECRET);
+    req.reviewer = await UserReviewer.findById(decoded.id).select('-password');
+    if (!req.reviewer) throw new Error('Reviewer not found');
+    next();
+  } catch (error) {
+    res.status(401);
+    throw new Error('Reviewer token has failed');
+  }
+});
 
 const optionalProtect = asyncHandler(async (req, res, next) => {
   if (
@@ -93,4 +112,4 @@ const requireActiveSubscription = (req, res, next) => {
   throw new Error('An active subscription is required to edit your professional profile.');
 };
 
-export { protect, optionalProtect, admin, hasActiveSubscription, requireActiveSubscription };
+export { protect, protectReviewer, optionalProtect, admin, hasActiveSubscription, requireActiveSubscription };

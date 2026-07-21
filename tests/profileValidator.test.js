@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import mongoose from 'mongoose';
 import {
   profileDraftRequestSchema,
   updateProfileSchema,
   paginationSchema,
+  deleteReviewSchema,
 } from '../validators/profileValidator.js';
 
 test('updateProfileSchema accepts Quill HTML when visible specialisation text is within the limit', () => {
@@ -75,4 +77,10 @@ test('paginationSchema rejects an excessively long directory search query', () =
 
   assert.ok(error);
   assert.match(error.message, /Search query must not exceed 200 characters/);
+});
+
+test('deleteReviewSchema requires an audit reason', () => {
+  const reviewId = new mongoose.Types.ObjectId().toString();
+  assert.ok(deleteReviewSchema.validate({ reviewId }).error);
+  assert.equal(deleteReviewSchema.validate({ reviewId, reason: 'Reported personal information' }).error, undefined);
 });

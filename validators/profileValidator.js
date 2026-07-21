@@ -225,6 +225,10 @@ export const deleteReviewSchema = Joi.object({
       'any.invalid': 'Invalid review ID format',
       'any.required': 'Review ID is required',
     }),
+  reason: Joi.string().trim().min(3).max(1000).required().messages({
+    'string.min': 'Removal reason must be at least 3 characters',
+    'any.required': 'Removal reason is required',
+  }),
 });
 
 export const paginationSchema = Joi.object({
