@@ -208,8 +208,22 @@ const buildProfileSearchBaseStages = ({ filter, searchParts }) => {
     allSearchableTextExpression,
   });
 
+  // A multi-word query must remain relevant as a whole. Each meaningful term
+  // has to appear somewhere in the searchable profile fields; scoring then
+  // determines whether exact service/location matches rank above partial ones.
+  const requiredTermMatches = searchParts.terms.map((term) => ({
+    $regexMatch: {
+      input: allSearchableTextExpression,
+      regex: escapeRegex(term),
+      options: 'i',
+    },
+  }));
+
   return [
     { $match: filter },
+    ...(requiredTermMatches.length > 0
+      ? [{ $match: { $expr: { $and: requiredTermMatches } } }]
+      : []),
     {
       $addFields: {
         searchRank: {

@@ -241,4 +241,7 @@ export const paginationSchema = Joi.object({
   specialisation: Joi.string().max(400).allow('').messages({
     'string.max': 'Specialisation filter must not exceed 400 characters',
   }),
+  search: Joi.string().max(200).allow('').messages({
+    'string.max': 'Search query must not exceed 200 characters',
+  }),
 });

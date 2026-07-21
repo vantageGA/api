@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   profileDraftRequestSchema,
   updateProfileSchema,
+  paginationSchema,
 } from '../validators/profileValidator.js';
 
 test('updateProfileSchema accepts Quill HTML when visible specialisation text is within the limit', () => {
@@ -56,4 +57,22 @@ test('profileDraftRequestSchema rejects short natural language input', () => {
     error.message,
     /Profile draft input must be between 40 and 4000 characters/,
   );
+});
+
+test('paginationSchema preserves a valid directory search query', () => {
+  const { error, value } = paginationSchema.validate(
+    { page: '1', limit: '20', search: 'barber Manchester', ignored: 'value' },
+    { stripUnknown: true },
+  );
+
+  assert.equal(error, undefined);
+  assert.equal(value.search, 'barber Manchester');
+  assert.equal(value.ignored, undefined);
+});
+
+test('paginationSchema rejects an excessively long directory search query', () => {
+  const { error } = paginationSchema.validate({ search: 'a'.repeat(201) });
+
+  assert.ok(error);
+  assert.match(error.message, /Search query must not exceed 200 characters/);
 });
