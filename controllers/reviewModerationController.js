@@ -4,6 +4,8 @@ import User from '../models/userModel.js';
 import UserReviewer from '../models/userReviewerModel.js';
 import { sendReviewModerationNotification, sendReviewNotification } from '../utils/emailService.js';
 import { buildProfileStatsPipeline, screenReview } from '../services/reviewModerationService.js';
+import { buildFrontendUrl } from '../utils/frontendUrl.js';
+import { logError } from '../utils/auditLogger.js';
 
 const queueStatuses = ['pending_review', 'under_moderation'];
 
@@ -11,6 +13,9 @@ const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const refreshProfileStats = (profileId) =>
   Profile.updateOne({ _id: profileId }, buildProfileStatsPipeline());
+
+export const getReviewerAmendmentUrl = () =>
+  buildFrontendUrl('/reviewer-login');
 
 const findReview = async (profileId, reviewId) => {
   const profile = await Profile.findById(profileId).select('name user reviews');
@@ -164,28 +169,40 @@ export const transitionReview = async ({ profileId, reviewId, action, reason, mo
   return findReview(profileId, reviewId);
 };
 
-const sendDecisionNotification = ({ action, profile, review, reason }) => {
+export const sendDecisionNotification = async ({
+  action,
+  profile,
+  review,
+  reason,
+  sendModerationNotification = sendReviewModerationNotification,
+  sendOwnerNotification = sendReviewNotification,
+}) => {
   if (action === 'approve') {
-    User.findById(profile.user).select('email name').then((owner) => {
-      if (owner?.email) return sendReviewNotification(owner.email, owner.name, review.name, review.comment);
-      return null;
-    }).catch((error) => console.error('Failed to send review notification:', error.message));
+    const owner = await User.findById(profile.user).select('email name');
+    if (!owner?.email) {
+      throw new Error('Profile owner email address was not found');
+    }
+    await sendOwnerNotification(
+      owner.email,
+      owner.name,
+      review.name,
+      review.comment,
+    );
+    return;
   }
+
   if (action === 'reject' || action === 'request_amendment') {
-    UserReviewer.findById(review.user).select('email name').then((reviewer) => {
-      if (reviewer?.email) {
-        return sendReviewModerationNotification(
-          reviewer.email,
-          reviewer.name,
-          action === 'reject' ? 'rejected' : 'amendment_requested',
-          reason,
-          action === 'request_amendment'
-            ? `${process.env.FRONTEND_URL || 'https://www.bodyvantage.co.uk'}/reviewer-login`
-            : '',
-        );
-      }
-      return null;
-    }).catch((error) => console.error('Failed to send moderation notification:', error.message));
+    const reviewer = await UserReviewer.findById(review.user).select('email name');
+    if (!reviewer?.email) {
+      throw new Error('Reviewer email address was not found');
+    }
+    await sendModerationNotification(
+      reviewer.email,
+      reviewer.name,
+      action === 'reject' ? 'rejected' : 'amendment_requested',
+      reason,
+      action === 'request_amendment' ? getReviewerAmendmentUrl() : '',
+    );
   }
 };
 
@@ -198,8 +215,28 @@ export const moderateReview = asyncHandler(async (req, res) => {
       reason: req.body.reason,
       moderatorId: req.user._id,
     });
-    sendDecisionNotification({ action: req.body.action, profile, review, reason: req.body.reason });
-    res.json({ message: 'Moderation action recorded', review });
+    let notificationWarning = null;
+    try {
+      await sendDecisionNotification({
+        action: req.body.action,
+        profile,
+        review,
+        reason: req.body.reason,
+      });
+    } catch (notificationError) {
+      notificationWarning =
+        'The moderation action was recorded, but the notification email could not be sent.';
+      logError('Failed to send moderation decision notification', notificationError, {
+        action: req.body.action,
+        profileId: req.params.profileId,
+        reviewId: req.params.reviewId,
+      });
+    }
+    res.json({
+      message: notificationWarning || 'Moderation action recorded',
+      review,
+      notificationWarning,
+    });
   } catch (error) {
     if (error.statusCode) res.status(error.statusCode);
     throw error;
@@ -216,8 +253,17 @@ export const bulkApproveReviews = asyncHandler(async (req, res) => {
         continue;
       }
       const approved = await transitionReview({ ...item, action: 'approve', reason: '', moderatorId: req.user._id });
-      sendDecisionNotification({ action: 'approve', ...approved, reason: '' });
-      results.push({ ...item, approved: true });
+      let notificationWarning = null;
+      try {
+        await sendDecisionNotification({ action: 'approve', ...approved, reason: '' });
+      } catch (notificationError) {
+        notificationWarning = 'The approval was recorded, but the notification email could not be sent.';
+        logError('Failed to send bulk approval notification', notificationError, {
+          profileId: item.profileId,
+          reviewId: item.reviewId,
+        });
+      }
+      results.push({ ...item, approved: true, notificationWarning });
     } catch (error) {
       results.push({ ...item, approved: false, reason: error.message });
     }

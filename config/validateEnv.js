@@ -106,24 +106,30 @@ export const validateEnv = () => {
     warnings.push('MongoDB URI should start with mongodb:// or mongodb+srv://');
   }
 
-  // Validate URLs
-  try {
-    new URL(process.env.MAILER_LOCAL_URL);
-  } catch (e) {
-    warnings.push('MAILER_LOCAL_URL is not a valid URL');
-  }
+  // Validate every configured URL used in email links and browser redirects.
+  const urlEnvVars = [
+    'MAILER_LOCAL_URL',
+    'RESET_PASSWORD_LOCAL_URL',
+    'MAILER_PRODUCTION_URL',
+    'RESET_PASSWORD_PRODUCTION_URL',
+    'FRONTEND_URL',
+    'CONFIRM_REDIRECT_URL',
+  ];
+  for (const varName of urlEnvVars) {
+    const value = process.env[varName];
+    if (!value) continue;
 
-  try {
-    new URL(process.env.RESET_PASSWORD_LOCAL_URL);
-  } catch (e) {
-    warnings.push('RESET_PASSWORD_LOCAL_URL is not a valid URL');
-  }
-
-  if (process.env.FRONTEND_URL) {
     try {
-      new URL(process.env.FRONTEND_URL);
-    } catch (e) {
-      warnings.push('FRONTEND_URL is not a valid URL');
+      const parsedUrl = new URL(value);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        throw new Error('URL must use HTTP or HTTPS');
+      }
+    } catch {
+      if (process.env.NODE_ENV === 'production') {
+        console.error(`\nFATAL ERROR: ${varName} must be a valid HTTP(S) URL.\n`);
+        process.exit(1);
+      }
+      warnings.push(`${varName} must be a valid HTTP(S) URL`);
     }
   }
 

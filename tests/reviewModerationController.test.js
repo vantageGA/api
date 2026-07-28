@@ -3,11 +3,75 @@ import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 
 import Profile from '../models/profileModel.js';
-import { transitionReview } from '../controllers/reviewModerationController.js';
+import UserReviewer from '../models/userReviewerModel.js';
+import {
+  getReviewerAmendmentUrl,
+  sendDecisionNotification,
+  transitionReview,
+} from '../controllers/reviewModerationController.js';
 
 const profileId = new mongoose.Types.ObjectId();
 const reviewId = new mongoose.Types.ObjectId();
 const moderatorId = new mongoose.Types.ObjectId();
+
+test('review amendment emails use the configured frontend login route', () => {
+  const originalFrontendUrl = process.env.FRONTEND_URL;
+  process.env.FRONTEND_URL = 'https://bodyvantage.example/';
+
+  try {
+    assert.equal(
+      getReviewerAmendmentUrl(),
+      'https://bodyvantage.example/reviewer-login',
+    );
+  } finally {
+    if (originalFrontendUrl === undefined) {
+      delete process.env.FRONTEND_URL;
+    } else {
+      process.env.FRONTEND_URL = originalFrontendUrl;
+    }
+  }
+});
+
+test('amendment decisions send the generated login URL to the reviewer', async () => {
+  const originalFrontendUrl = process.env.FRONTEND_URL;
+  process.env.FRONTEND_URL = 'https://bodyvantage.example/';
+  const notificationCalls = [];
+  mock.method(UserReviewer, 'findById', () => ({
+    select: async () => ({
+      email: 'reviewer@example.com',
+      name: 'Review Person',
+    }),
+  }));
+
+  try {
+    await sendDecisionNotification({
+      action: 'request_amendment',
+      profile: { _id: profileId },
+      review: {
+        user: new mongoose.Types.ObjectId(),
+      },
+      reason: 'Please clarify the final paragraph.',
+      sendModerationNotification: async (...args) => {
+        notificationCalls.push(args);
+      },
+    });
+
+    assert.deepEqual(notificationCalls, [[
+      'reviewer@example.com',
+      'Review Person',
+      'amendment_requested',
+      'Please clarify the final paragraph.',
+      'https://bodyvantage.example/reviewer-login',
+    ]]);
+  } finally {
+    mock.restoreAll();
+    if (originalFrontendUrl === undefined) {
+      delete process.env.FRONTEND_URL;
+    } else {
+      process.env.FRONTEND_URL = originalFrontendUrl;
+    }
+  }
+});
 
 test('approval uses a conditional atomic update and records coherent audit transitions', async () => {
   const updateCalls = [];

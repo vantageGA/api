@@ -26,6 +26,7 @@ Required for production subscription checkout:
 - `STRIPE_PRICE_MONTHLY` — monthly subscription price id. Must start with `price_`.
 - `STRIPE_PRICE_ANNUAL` — annual subscription price id. Must start with `price_`.
 - `FRONTEND_URL` — frontend origin used for Stripe success/cancel redirect URLs and CORS.
+- `CONFIRM_REDIRECT_URL` — optional canonical frontend origin for email-verification redirects. Configured browser URLs must use HTTP or HTTPS.
 
 Subscription behavior notes:
 
