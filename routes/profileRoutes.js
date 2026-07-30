@@ -2,6 +2,7 @@ import express from 'express';
 import {
   getAllProfiles,
   getAllProfilesAdmin,
+  getProfileReviewsAdmin,
   getProfileById,
   createProfile,
   getProfile,
@@ -36,6 +37,8 @@ import {
   profileDraftRequestSchema,
   deleteReviewSchema,
   paginationSchema,
+  adminProfileListQuerySchema,
+  adminProfileReviewsQuerySchema,
 } from '../validators/profileValidator.js';
 import {
   bulkApproveReviewsSchema,
@@ -54,7 +57,14 @@ router
   .post(protect, requireActiveSubscription, createProfile);
 
 // Get all profiles ADMIN route (must be above /profiles/:id to avoid matching "admin" as an ID)
-router.route('/profiles/admin').get(protect, admin, validate(paginationSchema, 'query'), getAllProfilesAdmin);
+router
+  .route('/profiles/admin')
+  .get(
+    protect,
+    admin,
+    validate(adminProfileListQuerySchema, 'query'),
+    getAllProfilesAdmin,
+  );
 
 router
   .route('/profiles/admin/reviews')
@@ -85,6 +95,16 @@ router
   .get(protectReviewer, getReviewerReviews);
 
 // Delete or update specific profile ADMIN routes
+router
+  .route('/profiles/admin/:id/reviews')
+  .get(
+    protect,
+    admin,
+    validate(profileIdSchema, 'params'),
+    validate(adminProfileReviewsQuerySchema, 'query'),
+    getProfileReviewsAdmin,
+  );
+
 router
   .route('/profiles/admin/:id')
   .delete(protect, admin, validate(profileIdSchema, 'params'), deleteProfile)

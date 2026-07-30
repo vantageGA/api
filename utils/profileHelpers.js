@@ -77,9 +77,10 @@ export const saveProfileQualificationSummary = async (
   profile,
   status,
   updatedAt = new Date(),
+  saveOptions = undefined,
 ) => {
   updateProfileQualificationSummary(profile, status, updatedAt);
-  await profile.save();
+  await profile.save(saveOptions);
   return profile;
 };
 

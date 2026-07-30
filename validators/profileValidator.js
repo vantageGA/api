@@ -252,3 +252,32 @@ export const paginationSchema = Joi.object({
     .valid('homepage', 'directory')
     .default('homepage'),
 });
+
+export const adminProfileListQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1).messages({
+    'number.min': 'Page must be at least 1',
+  }),
+  limit: Joi.number().integer().min(1).max(100).default(25).messages({
+    'number.min': 'Limit must be at least 1',
+    'number.max': 'Limit must not exceed 100',
+  }),
+  search: Joi.string().trim().max(200).allow('').default('').messages({
+    'string.max': 'Search must not exceed 200 characters',
+  }),
+  location: Joi.string().trim().max(200).allow('').default('').messages({
+    'string.max': 'Location filter must not exceed 200 characters',
+  }),
+  qualificationStatus: Joi.string()
+    .valid('none', 'pending', 'approved', 'rejected')
+    .allow('')
+    .default(''),
+  sortBy: Joi.string()
+    .valid('createdAt', 'updatedAt', 'rating', 'name')
+    .default('createdAt'),
+  sortDirection: Joi.string().valid('asc', 'desc').default('desc'),
+});
+
+export const adminProfileReviewsQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(50).default(20),
+});

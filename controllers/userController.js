@@ -4,6 +4,7 @@ import User from '../models/userModel.js';
 import Profile from '../models/profileModel.js';
 import ProfileImages from '../models/profileImageModel.js';
 import UserProfileImages from '../models/imageUploadModal.js';
+import QualificationDocument from '../models/qualificationDocumentModel.js';
 import LoginEvent from '../models/loginEventModel.js';
 import cloudinary from 'cloudinary';
 import jwt from 'jsonwebtoken';
@@ -28,8 +29,10 @@ import {
   sendProfileReactivatedEmail,
 } from '../services/emailService.js';
 import { syncUserSubscriptionFromStripe } from '../services/subscriptionStatusService.js';
+import { getMemberDeletionBillingState } from '../services/accountDeletionService.js';
 import { recordMemberLogin } from '../services/loginAnalyticsService.js';
 import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
+import { destroyCloudinaryAssets } from '../utils/cloudinaryAssetCleanup.js';
 
 const authUserResponse = (user, extra = {}) => ({
   _id: user._id,
@@ -444,10 +447,69 @@ const deleteUser = asyncHandler(async (req, res) => {
     throw new Error('User Not Found');
   }
 
+  if (user.isAdmin) {
+    res.status(400);
+    throw new Error('Admin accounts must be demoted before deletion');
+  }
+
   // Prevent self-deletion
   if (user._id.toString() === req.user._id.toString()) {
     res.status(400);
     throw new Error('Cannot delete your own account');
+  }
+
+  let billingState;
+  try {
+    billingState = await getMemberDeletionBillingState(user);
+  } catch (error) {
+    logError('Failed to verify Stripe billing state before user deletion', error, {
+      userId: user._id,
+      deletedBy: req.user._id,
+    });
+    res.status(503);
+    throw new Error(
+      'Unable to verify the member billing status. The account was not deleted',
+    );
+  }
+
+  if (!billingState.canDelete) {
+    if (billingState.reason === 'active-stripe-subscription') {
+      res.status(409);
+      throw new Error(
+        'Cancel the active Stripe subscription before deleting this account',
+      );
+    }
+
+    if (
+      billingState.reason ===
+      'local-active-subscription-without-stripe-reference'
+    ) {
+      res.status(409);
+      throw new Error(
+        'Resolve the active subscription record before deleting this account',
+      );
+    }
+
+    res.status(503);
+    throw new Error(
+      'Unable to verify the member billing status. The account was not deleted',
+    );
+  }
+
+  const markedProfile = await Profile.findOneAndUpdate(
+    {
+      user: req.params.id,
+      lifecycleStatus: { $ne: 'deleting' },
+    },
+    { $set: { lifecycleStatus: 'deleting' } },
+    { new: true, select: '_id' },
+  );
+  if (!markedProfile) {
+    const profileExists = await Profile.exists({ user: req.params.id });
+    if (profileExists) {
+      res.status(409);
+      throw new Error('The member profile is already being deleted');
+    }
   }
 
   // Configure Cloudinary
@@ -461,99 +523,104 @@ const deleteUser = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
+  let cloudinaryAssets = [];
+  let deletionStats;
   try {
-    const deletionStats = {
+    deletionStats = {
       profileImages: 0,
       userProfileImages: 0,
+      qualificationDocuments: 0,
       profile: 0,
       cloudinaryFiles: 0,
       loginEvents: 0,
       user: 0
     };
 
-    // 1. Delete all ProfileImages (profile page images) and their Cloudinary files
-    const profileImages = await ProfileImages.find({ user: req.params.id }).session(session);
-    for (const image of profileImages) {
-      if (image.cloudinaryId) {
-        try {
-          await cloudinary.uploader.destroy(image.cloudinaryId);
-          deletionStats.cloudinaryFiles++;
-        } catch (cloudError) {
-          // Log error but continue - don't fail transaction for Cloudinary errors
-          logError('Failed to delete Cloudinary image', cloudError, {
-            imageId: image.cloudinaryId,
-            userId: req.params.id
-          });
-        }
-      }
-      await image.deleteOne({ session });
-      deletionStats.profileImages++;
-    }
+    const profileImages = await ProfileImages.find({
+      user: req.params.id,
+    })
+      .session(session)
+      .lean();
+    const userProfileImages = await UserProfileImages.find({
+      user: req.params.id,
+    })
+      .session(session)
+      .lean();
+    const profile = await Profile.findOne({ user: req.params.id })
+      .session(session)
+      .lean();
+    const qualificationDocuments = await QualificationDocument.find({
+      user: req.params.id,
+    })
+      .session(session)
+      .lean();
 
-    // 2. Delete all UserProfileImages (user account images) and their Cloudinary files
-    const userProfileImages = await UserProfileImages.find({ user: req.params.id }).session(session);
-    for (const image of userProfileImages) {
-      if (image.cloudinaryId) {
-        try {
-          await cloudinary.uploader.destroy(image.cloudinaryId);
-          deletionStats.cloudinaryFiles++;
-        } catch (cloudError) {
-          logError('Failed to delete Cloudinary image', cloudError, {
-            imageId: image.cloudinaryId,
-            userId: req.params.id
-          });
-        }
-      }
-      await image.deleteOne({ session });
-      deletionStats.userProfileImages++;
-    }
+    cloudinaryAssets = [
+      ...profileImages
+        .filter((image) => image.cloudinaryId)
+        .map((image) => ({
+          publicId: image.cloudinaryId,
+          resourceTypes: ['image'],
+        })),
+      ...userProfileImages
+        .filter((image) => image.cloudinaryId)
+        .map((image) => ({
+          publicId: image.cloudinaryId,
+          resourceTypes: ['image'],
+        })),
+      ...(profile?.cloudinaryId
+        ? [{ publicId: profile.cloudinaryId, resourceTypes: ['image'] }]
+        : []),
+      ...qualificationDocuments
+        .filter((document) => document.cloudinaryPublicId)
+        .map((document) => ({
+          publicId: document.cloudinaryPublicId,
+          resourceTypes: [
+            document.cloudinaryResourceType || 'raw',
+            document.cloudinaryResourceType === 'image' ? 'raw' : 'image',
+          ],
+        })),
+    ];
 
-    // 3. Delete the user's Profile (this also deletes embedded reviews)
-    const profile = await Profile.findOne({ user: req.params.id }).session(session);
-    if (profile) {
-      // Delete profile's main image from Cloudinary if it exists
-      if (profile.cloudinaryId) {
-        try {
-          await cloudinary.uploader.destroy(profile.cloudinaryId);
-          deletionStats.cloudinaryFiles++;
-        } catch (cloudError) {
-          logError('Failed to delete Cloudinary image', cloudError, {
-            imageId: profile.cloudinaryId,
-            userId: req.params.id
-          });
-        }
-      }
-      await profile.deleteOne({ session });
-      deletionStats.profile = 1;
-    }
+    const deletedProfileImages = await ProfileImages.deleteMany(
+      { user: req.params.id },
+      { session },
+    );
+    const deletedUserImages = await UserProfileImages.deleteMany(
+      { user: req.params.id },
+      { session },
+    );
+    const deletedDocuments = await QualificationDocument.deleteMany(
+      { user: req.params.id },
+      { session },
+    );
+    const deletedProfile = await Profile.deleteOne(
+      { user: req.params.id },
+      { session },
+    );
+    deletionStats.profileImages = deletedProfileImages.deletedCount || 0;
+    deletionStats.userProfileImages = deletedUserImages.deletedCount || 0;
+    deletionStats.qualificationDocuments = deletedDocuments.deletedCount || 0;
+    deletionStats.profile = deletedProfile.deletedCount || 0;
 
-    // 4. Delete personally linked login analytics.
     deletionStats.loginEvents = await deleteMemberLoginAnalytics(user._id, {
       session,
     });
 
-    // 5. Delete the User
     await user.deleteOne({ session });
     deletionStats.user = 1;
 
-    // Commit transaction
     await session.commitTransaction();
-
-    // Log user deletion
-    logSecurityEvent(SecurityEvents.USER_DELETED, req.params.id, {
-      ip: req.ip,
-      userAgent: req.get('user-agent'),
-      deletedBy: req.user._id,
-      stats: deletionStats
-    });
-
-    res.json({
-      message: 'User and all related data successfully removed',
-      deleted: deletionStats
-    });
   } catch (error) {
-    // Rollback transaction on error
-    await session.abortTransaction();
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    if (markedProfile) {
+      await Profile.updateOne(
+        { _id: markedProfile._id, lifecycleStatus: 'deleting' },
+        { $set: { lifecycleStatus: 'active' } },
+      );
+    }
 
     logError('Error during user deletion', error, {
       userId: req.params.id,
@@ -563,8 +630,28 @@ const deleteUser = asyncHandler(async (req, res) => {
     res.status(500);
     throw new Error(`Error deleting user and related data: ${error.message}`);
   } finally {
-    session.endSession();
+    await session.endSession();
   }
+
+  deletionStats.cloudinaryFiles = await destroyCloudinaryAssets(
+    cloudinaryAssets,
+    {
+      failureMessage: 'Failed to delete user asset from Cloudinary',
+      context: { userId: req.params.id },
+    },
+  );
+
+  logSecurityEvent(SecurityEvents.USER_DELETED, req.params.id, {
+    ip: req.ip,
+    userAgent: req.get('user-agent'),
+    deletedBy: req.user._id,
+    stats: deletionStats
+  });
+
+  res.json({
+    message: 'User and all related data successfully removed',
+    deleted: deletionStats
+  });
 });
 
 // @description: Update isAdmin to true/false
@@ -574,14 +661,38 @@ const updateIsAdmin = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
 
   if (user) {
-    if (typeof req.body.val !== 'boolean') {
+    const { error, value } = updateIsAdminSchema.validate(req.body, {
+      stripUnknown: true,
+      abortEarly: false,
+    });
+    if (error) {
       res.status(400);
-      throw new Error('isAdmin update requires a boolean value');
+      throw new Error(error.details[0].message);
     }
 
-    user.isAdmin = req.body.val;
-    const updateIsAdmin = await user.save();
-    res.json(updateIsAdmin);
+    if (value.val && user.isConfirmed !== true) {
+      res.status(400);
+      throw new Error('Only confirmed users can be granted admin access');
+    }
+    if (
+      value.val === false &&
+      user._id.toString() === req.user._id.toString()
+    ) {
+      res.status(400);
+      throw new Error('You cannot remove your own admin access');
+    }
+
+    const previousIsAdmin = user.isAdmin === true;
+    user.isAdmin = value.val;
+    const updatedUser = await user.save();
+    logSecurityEvent(SecurityEvents.ADMIN_STATUS_CHANGED, user._id, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      changedBy: req.user._id,
+      from: previousIsAdmin,
+      to: value.val,
+    });
+    res.json(serializeAdminUser(updatedUser));
   } else {
     res.status(404);
     throw new Error('User not found');

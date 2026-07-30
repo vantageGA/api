@@ -7,6 +7,8 @@ import UserReviewer from '../models/userReviewerModel.js';
 import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
+import Profile from '../models/profileModel.js';
 import {
   forgotPasswordSchema,
   resetPasswordSchema,
@@ -16,36 +18,123 @@ import {
   sendPasswordChangedEmail,
 } from '../services/emailService.js';
 import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
+import {
+  serializeReviewer,
+  serializeReviewers,
+} from '../utils/userReviewerSerializer.js';
+
+const escapeRegex = (value = '') =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // @description: Get All the user REVIEWS
 // @route: GET /api/reviewers/admin
 // @access: Admin
 const getAllUsersReviews = asyncHandler(async (req, res) => {
-  const reviewers = await UserReviewer.find({});
-  res.json(reviewers);
+  const { page, limit, search, isConfirmed, hasSubmittedReview } = req.query;
+  const skip = (page - 1) * limit;
+  const filter = {};
+
+  if (search) {
+    const safeSearch = escapeRegex(search);
+    filter.$or = [
+      { name: new RegExp(safeSearch, 'i') },
+      { email: new RegExp(safeSearch, 'i') },
+    ];
+  }
+  if (isConfirmed !== undefined) filter.isConfirmed = isConfirmed;
+  if (hasSubmittedReview !== undefined) {
+    filter.hasSubmittedReview = hasSubmittedReview;
+  }
+
+  const [reviewers, total] = await Promise.all([
+    UserReviewer.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    UserReviewer.countDocuments(filter),
+  ]);
+
+  res.json({
+    reviewers: serializeReviewers(reviewers),
+    page,
+    pages: Math.max(1, Math.ceil(total / limit)),
+    total,
+  });
 });
 
-// @description: Get All the user REVIEWS
-// @route: GET /api/reviewers
-// @access: public
+// @description: Get the authenticated reviewer's safe account details
+// @route: GET /api/reviewers/me
+// @access: Reviewer
 const getAllUsersReviewers = asyncHandler(async (req, res) => {
-  const reviewer = await UserReviewer.findById(req.params.id);
-  if (!reviewer) {
-    res.status(404);
-    throw new Error('No reviewer found');
-  }
-  res.json(reviewer);
+  res.json(serializeReviewer(req.reviewer));
 });
 
 // @description: Delete a single reviewer
 // @route: DELETE /api/reviewer/admin/:id
 // @access: PRIVATE/Admin
 const deleteReviewer = asyncHandler(async (req, res) => {
-  const reviewer = await UserReviewer.findById(req.params.id);
+  const reviewer = await UserReviewer.findOneAndUpdate(
+    {
+      _id: req.params.id,
+      deletionPending: { $ne: true },
+    },
+    { $set: { deletionPending: true } },
+    { new: true },
+  ).select('+deletionPending');
+
   if (reviewer) {
-    await reviewer.deleteOne();
-    res.json({ message: 'Reviewer successfully removed' });
+    const session = await mongoose.startSession();
+    let anonymisedReviews;
+
+    try {
+      await session.withTransaction(async () => {
+        anonymisedReviews = await Profile.updateMany(
+          { 'reviews.user': reviewer._id },
+          {
+            $set: {
+              'reviews.$[review].user': null,
+              'reviews.$[review].name': 'Deleted reviewer',
+              'reviews.$[review].showName': false,
+              'reviews.$[review].userProfileId': null,
+            },
+          },
+          {
+            arrayFilters: [{ 'review.user': reviewer._id }],
+            session,
+          },
+        );
+
+        await UserReviewer.deleteOne({ _id: reviewer._id }, { session });
+      });
+    } catch (error) {
+      await UserReviewer.updateOne(
+        { _id: reviewer._id },
+        { $set: { deletionPending: false } },
+      );
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+
+    logSecurityEvent(SecurityEvents.REVIEWER_DELETED, reviewer._id, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      deletedBy: req.user._id,
+      matchedProfiles: anonymisedReviews.matchedCount || 0,
+      modifiedProfiles: anonymisedReviews.modifiedCount || 0,
+    });
+    res.json({
+      message: 'Reviewer successfully removed',
+      anonymisedProfiles: anonymisedReviews.modifiedCount || 0,
+    });
   } else {
+    const reviewerExists = await UserReviewer.exists({ _id: req.params.id });
+    if (reviewerExists) {
+      res.status(409);
+      throw new Error('Reviewer deletion is already in progress');
+    }
+
     res.status(404);
     throw new Error('Reviewer Not Found');
   }
@@ -56,7 +145,10 @@ const deleteReviewer = asyncHandler(async (req, res) => {
 // @access: Public
 const authUserReview = asyncHandler(async (req, res) => {
   const { email, password, userProfileId } = req.body;
-  const user = await UserReviewer.findOne({ email: email });
+  const user = await UserReviewer.findOne({
+    email,
+    deletionPending: { $ne: true },
+  }).select('+password');
   if (user && (await user.matchPassword(password))) {
     if (!user.isConfirmed) {
       logSecurityEvent(SecurityEvents.LOGIN_FAILED, user._id, {
@@ -270,7 +362,7 @@ const updateReviewerPassword = asyncHandler(async (req, res) => {
     _id: decodedToken.id,
     resetPasswordToken: hashedToken,
     resetPasswordTokenExpiry: { $gt: Date.now() },
-  });
+  }).select('+resetPasswordToken +resetPasswordTokenExpiry');
 
   if (!reviewer) {
     logSecurityEvent(SecurityEvents.PASSWORD_RESET_FAILED, decodedToken.id, {

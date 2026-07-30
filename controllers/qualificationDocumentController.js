@@ -1,5 +1,6 @@
 import asyncHandler from 'express-async-handler';
 import cloudinary from 'cloudinary';
+import mongoose from 'mongoose';
 import { unlink } from 'fs/promises';
 import { Readable } from 'stream';
 import Profile from '../models/profileModel.js';
@@ -157,7 +158,10 @@ const ensureValidDocumentId = (id, res) => {
 };
 
 const ensureProfileForUser = async (userId, res) => {
-  const profile = await Profile.findOne({ user: userId });
+  const profile = await Profile.findOne({
+    user: userId,
+    lifecycleStatus: { $ne: 'deleting' },
+  });
 
   if (!profile) {
     res.status(404);
@@ -302,7 +306,11 @@ const cleanupTemporaryUploadFile = async (file) => {
   }
 };
 
-const supersedeActiveDocuments = async (profileId, supersededAt) => {
+const supersedeActiveDocuments = async (
+  profileId,
+  supersededAt,
+  session = undefined,
+) => {
   await QualificationDocument.updateMany(
     {
       profile: profileId,
@@ -314,6 +322,7 @@ const supersedeActiveDocuments = async (profileId, supersededAt) => {
         supersededAt,
       },
     },
+    session ? { session } : undefined,
   );
 };
 
@@ -326,52 +335,75 @@ const createQualificationSubmission = async ({
 }) => {
   ensureQualificationFile(file, res);
 
-  let replacementDocument = null;
-  if (replacementDocumentId) {
-    replacementDocument = await QualificationDocument.findOne({
-      _id: replacementDocumentId,
-      user: userId,
-      profile: profile._id,
-    });
-
-    if (!replacementDocument) {
-      res.status(404);
-      throw new Error('Qualification document not found');
-    }
-
-    if (!replacementDocument.isActive) {
-      res.status(400);
-      throw new Error('Only active qualification documents can be replaced');
-    }
-  }
-
   const now = new Date();
   const { result, resourceType } = await uploadQualificationAsset(file);
+  const session = await mongoose.startSession();
+  let createdDocument;
+  let replacementDocument = null;
 
   try {
-    await supersedeActiveDocuments(profile._id, now);
+    await session.withTransaction(async () => {
+      const activeProfile = await Profile.findOne({
+        _id: profile._id,
+        user: userId,
+        lifecycleStatus: { $ne: 'deleting' },
+      }).session(session);
 
-    const createdDocument = await QualificationDocument.create({
-      user: userId,
-      profile: profile._id,
-      originalFileName: file.originalname,
-      mimeType: file.mimetype,
-      fileSizeBytes: file.size,
-      cloudinaryPublicId: result.public_id,
-      cloudinaryResourceType: result.resource_type || resourceType,
-      status: 'pending',
-      rejectionReason: '',
-      reviewedAt: null,
-      reviewedBy: null,
-      isActive: true,
-      supersededAt: null,
+      if (!activeProfile) {
+        res.status(409);
+        throw new Error('Profile is unavailable for qualification uploads');
+      }
+
+      if (replacementDocumentId) {
+        replacementDocument = await QualificationDocument.findOne({
+          _id: replacementDocumentId,
+          user: userId,
+          profile: activeProfile._id,
+        }).session(session);
+
+        if (!replacementDocument) {
+          res.status(404);
+          throw new Error('Qualification document not found');
+        }
+
+        if (!replacementDocument.isActive) {
+          res.status(400);
+          throw new Error(
+            'Only active qualification documents can be replaced',
+          );
+        }
+      }
+
+      await supersedeActiveDocuments(activeProfile._id, now, session);
+
+      [createdDocument] = await QualificationDocument.create(
+        [
+          {
+            user: userId,
+            profile: activeProfile._id,
+            originalFileName: file.originalname,
+            mimeType: file.mimetype,
+            fileSizeBytes: file.size,
+            cloudinaryPublicId: result.public_id,
+            cloudinaryResourceType: result.resource_type || resourceType,
+            status: 'pending',
+            rejectionReason: '',
+            reviewedAt: null,
+            reviewedBy: null,
+            isActive: true,
+            supersededAt: null,
+          },
+        ],
+        { session },
+      );
+
+      await saveProfileQualificationSummary(
+        activeProfile,
+        QUALIFICATION_VERIFICATION_STATUSES.PENDING,
+        now,
+        { session },
+      );
     });
-
-    await saveProfileQualificationSummary(
-      profile,
-      QUALIFICATION_VERIFICATION_STATUSES.PENDING,
-      now,
-    );
 
     return {
       createdDocument,
@@ -386,6 +418,7 @@ const createQualificationSubmission = async ({
 
     throw error;
   } finally {
+    await session.endSession();
     await cleanupTemporaryUploadFile(file);
   }
 };

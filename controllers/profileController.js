@@ -1,9 +1,16 @@
 import asyncHandler from 'express-async-handler';
+import cloudinary from 'cloudinary';
+import mongoose from 'mongoose';
 import Profile from '../models/profileModel.js';
 import ProfileImages from '../models/profileImageModel.js';
+import QualificationDocument from '../models/qualificationDocumentModel.js';
 import UserReviewer from '../models/userReviewerModel.js';
 import User from '../models/userModel.js';
-import { logSecurityEvent, SecurityEvents } from '../utils/auditLogger.js';
+import {
+  logError,
+  logSecurityEvent,
+  SecurityEvents,
+} from '../utils/auditLogger.js';
 import {
   updateProfileStats,
   syncKeywordsArray,
@@ -15,6 +22,7 @@ import {
 import { validateObjectId } from '../validators/commonValidators.js';
 import { isPublicReview, screenReview } from '../services/reviewModerationService.js';
 import { createSearchAnalyticsReceipt } from '../utils/searchAnalyticsReceipt.js';
+import { destroyCloudinaryAssets } from '../utils/cloudinaryAssetCleanup.js';
 
 const isOnboardingTutorialEnforced = () => {
   if (process.env.ONBOARDING_TUTORIAL_ENFORCED === undefined) {
@@ -40,6 +48,24 @@ const PROFILE_LIST_FIELDS = [
 ];
 
 const PROFILE_LIST_SELECT = PROFILE_LIST_FIELDS.join(' ');
+const ADMIN_PROFILE_LIST_FIELDS = [
+  'user',
+  'name',
+  'email',
+  'telephoneNumber',
+  'profileImage',
+  'description',
+  'specialisation',
+  'location',
+  'rating',
+  'numReviews',
+  'isQualificationsVerified',
+  'qualificationVerificationStatus',
+  'qualificationStatusUpdatedAt',
+  'createdAt',
+  'updatedAt',
+];
+const ADMIN_PROFILE_LIST_SELECT = ADMIN_PROFILE_LIST_FIELDS.join(' ');
 const SEARCH_STOP_WORDS = new Set([
   'a',
   'an',
@@ -63,6 +89,47 @@ const SEARCH_STOP_WORDS = new Set([
 ]);
 
 export const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export const hasReviewerAlreadyReviewed = (reviews, reviewerId) =>
+  reviews.some((review) => review.user?.toString() === reviewerId);
+
+export const buildAdminQualificationStatusCondition = (
+  qualificationStatus,
+) => {
+  if (qualificationStatus === 'approved') {
+    return {
+      $or: [
+        { qualificationVerificationStatus: 'approved' },
+        {
+          qualificationVerificationStatus: { $exists: false },
+          isQualificationsVerified: true,
+        },
+        {
+          qualificationVerificationStatus: null,
+          isQualificationsVerified: true,
+        },
+      ],
+    };
+  }
+
+  if (qualificationStatus === 'none') {
+    return {
+      $or: [
+        { qualificationVerificationStatus: 'none' },
+        {
+          qualificationVerificationStatus: { $exists: false },
+          isQualificationsVerified: { $ne: true },
+        },
+        {
+          qualificationVerificationStatus: null,
+          isQualificationsVerified: { $ne: true },
+        },
+      ],
+    };
+  }
+
+  return { qualificationVerificationStatus: qualificationStatus };
+};
 
 const normalizeSearchTerm = (value = '') =>
   value
@@ -270,7 +337,7 @@ const getAllProfiles = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   // Build filter from query parameters
-  const filter = {};
+  const filter = { lifecycleStatus: { $ne: 'deleting' } };
   // A disabled or pending profile remains in storage, but must never leak into
   // the public directory. Account, payment and qualification state are untouched.
   const publicUserIds = await User.find({ publicProfileStatus: { $in: ['active', null] } })
@@ -347,25 +414,43 @@ const getAllProfiles = asyncHandler(async (req, res) => {
 // @access: Admin
 // 🔴 FRONTEND IMPACT: Response format changed - now returns paginated object
 const getAllProfilesAdmin = asyncHandler(async (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = Math.min(
-    parseInt(req.query.limit) || PROFILE_CONSTANTS.DEFAULT_PAGE_SIZE,
-    PROFILE_CONSTANTS.MAX_PAGE_SIZE
-  );
+  const {
+    page,
+    limit,
+    search,
+    location,
+    qualificationStatus,
+    sortBy,
+    sortDirection,
+  } = req.query;
   const skip = (page - 1) * limit;
 
-  // Build filter
-  const filter = {};
-  if (req.query.location) {
-    filter.location = new RegExp(escapeRegex(req.query.location), 'i');
+  const filter = { lifecycleStatus: { $ne: 'deleting' } };
+  if (search) {
+    const safeSearch = new RegExp(escapeRegex(search), 'i');
+    filter.$or = [
+      { name: safeSearch },
+      { email: safeSearch },
+      { specialisation: safeSearch },
+    ];
   }
-  if (req.query.specialisation) {
-    filter.specialisation = new RegExp(escapeRegex(req.query.specialisation), 'i');
+  if (location) {
+    filter.location = new RegExp(escapeRegex(location), 'i');
   }
+  if (qualificationStatus) {
+    filter.$and = [
+      buildAdminQualificationStatusCondition(qualificationStatus),
+    ];
+  }
+  const sort = {
+    [sortBy]: sortDirection === 'asc' ? 1 : -1,
+    _id: sortDirection === 'asc' ? 1 : -1,
+  };
 
   const [profiles, total] = await Promise.all([
     Profile.find(filter)
-      .sort({ createdAt: -1 })
+      .select(ADMIN_PROFILE_LIST_SELECT)
+      .sort(sort)
       .skip(skip)
       .limit(limit)
       .lean(),
@@ -375,8 +460,47 @@ const getAllProfilesAdmin = asyncHandler(async (req, res) => {
   res.json({
     profiles,
     page,
-    pages: Math.ceil(total / limit),
+    pages: Math.max(1, Math.ceil(total / limit)),
     total,
+  });
+});
+
+// @description: Get published reviews for one profile in the admin profile view
+// @route: GET /api/profiles/admin/:id/reviews
+// @access: Admin
+const getProfileReviewsAdmin = asyncHandler(async (req, res) => {
+  const { page, limit } = req.query;
+  const profile = await Profile.findOne({
+    _id: req.params.id,
+    lifecycleStatus: { $ne: 'deleting' },
+  })
+    .select('name reviews')
+    .lean();
+
+  if (!profile) {
+    res.status(404);
+    throw new Error('Profile not found');
+  }
+
+  const reviews = profile.reviews
+    .filter((review) => !review.status || review.status === 'published')
+    .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
+  const skip = (page - 1) * limit;
+
+  res.json({
+    profileId: profile._id,
+    profileName: profile.name,
+    reviews: reviews.slice(skip, skip + limit).map((review) => ({
+      _id: review._id,
+      name: review.showName ? review.name : 'Anonymous reviewer',
+      rating: review.rating,
+      comment: review.comment,
+      status: review.status || 'published',
+      createdAt: review.createdAt,
+    })),
+    page,
+    pages: Math.max(1, Math.ceil(reviews.length / limit)),
+    total: reviews.length,
   });
 });
 
@@ -390,7 +514,10 @@ const getProfileById = asyncHandler(async (req, res) => {
     throw new Error('Invalid profile ID format');
   }
 
-  const profile = await Profile.findById(req.params.id);
+  const profile = await Profile.findOne({
+    _id: req.params.id,
+    lifecycleStatus: { $ne: 'deleting' },
+  });
 
   const profileOwner = profile && await User.findById(profile.user).select('publicProfileStatus').lean();
   if (profile && (!profileOwner?.publicProfileStatus || profileOwner.publicProfileStatus === 'active')) {
@@ -454,7 +581,10 @@ const createProfile = asyncHandler(async (req, res) => {
 // @route: GET /api/profile
 // @access: PRIVATE
 const getProfile = asyncHandler(async (req, res) => {
-  const profile = await Profile.findOne({ user: req.user._id });
+  const profile = await Profile.findOne({
+    user: req.user._id,
+    lifecycleStatus: { $ne: 'deleting' },
+  });
 
   // Return null instead of 404 if profile doesn't exist
   // This is expected for users who haven't created a profile yet
@@ -477,8 +607,11 @@ const updateProfileClicks = asyncHandler(async (req, res) => {
   }
 
   // Server controls increment - user cannot manipulate counter value
-  const profile = await Profile.findByIdAndUpdate(
-    req.body._id,
+  const profile = await Profile.findOneAndUpdate(
+    {
+      _id: req.body._id,
+      lifecycleStatus: { $ne: 'deleting' },
+    },
     { $inc: { profileClickCounter: 1 } }, // Server increments by 1 only
     { new: true, select: 'profileClickCounter' } // Return only the counter field
   );
@@ -498,7 +631,10 @@ const updateProfileClicks = asyncHandler(async (req, res) => {
 // Automatically syncs keywords array from individual keyword fields
 const updateProfile = asyncHandler(async (req, res) => {
   // Use authenticated user's ID only - never trust URL params or body for user ID
-  const profile = await Profile.findOne({ user: req.user._id });
+  const profile = await Profile.findOne({
+    user: req.user._id,
+    lifecycleStatus: { $ne: 'deleting' },
+  });
 
   if (!profile) {
     res.status(404);
@@ -542,7 +678,10 @@ const updateProfile = asyncHandler(async (req, res) => {
 // @route: PATCH /api/profile/onboarding-tutorial
 // @access: PRIVATE
 const updateOnboardingTutorialStatus = asyncHandler(async (req, res) => {
-  const profile = await Profile.findOne({ user: req.user._id });
+  const profile = await Profile.findOne({
+    user: req.user._id,
+    lifecycleStatus: { $ne: 'deleting' },
+  });
 
   if (!profile) {
     res.status(404);
@@ -657,15 +796,113 @@ const deleteProfile = asyncHandler(async (req, res) => {
     throw new Error('Invalid profile ID format');
   }
 
-  const profile = await Profile.findById(req.params.id);
+  const profile = await Profile.findOneAndUpdate(
+    {
+      _id: req.params.id,
+      lifecycleStatus: { $ne: 'deleting' },
+    },
+    { $set: { lifecycleStatus: 'deleting' } },
+    { new: true },
+  );
 
-  if (profile) {
-    await profile.deleteOne();
-    res.json({ message: 'Profile successfully removed' });
-  } else {
+  if (!profile) {
+    const profileExists = await Profile.exists({ _id: req.params.id });
+    if (profileExists) {
+      res.status(409);
+      throw new Error('Profile deletion is already in progress');
+    }
+
     res.status(404);
     throw new Error('Profile not found');
   }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  let profileImages = [];
+  let qualificationDocuments = [];
+
+  try {
+    profileImages = await ProfileImages.find({ user: profile.user })
+      .session(session)
+      .lean();
+    qualificationDocuments = await QualificationDocument.find({
+      profile: profile._id,
+    })
+      .session(session)
+      .lean();
+
+    await ProfileImages.deleteMany({ user: profile.user }, { session });
+    await QualificationDocument.deleteMany(
+      { profile: profile._id },
+      { session },
+    );
+    await Profile.deleteOne({ _id: profile._id }, { session });
+    await session.commitTransaction();
+  } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    await Profile.updateOne(
+      { _id: profile._id, lifecycleStatus: 'deleting' },
+      { $set: { lifecycleStatus: 'active' } },
+    );
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_SECRET,
+  });
+
+  const cloudinaryAssets = [
+    ...(profile.cloudinaryId
+      ? [{ publicId: profile.cloudinaryId, resourceTypes: ['image'] }]
+      : []),
+    ...profileImages
+      .filter((image) => image.cloudinaryId)
+      .map((image) => ({
+        publicId: image.cloudinaryId,
+        resourceTypes: ['image'],
+      })),
+    ...qualificationDocuments
+      .filter((document) => document.cloudinaryPublicId)
+      .map((document) => ({
+        publicId: document.cloudinaryPublicId,
+        resourceTypes: [
+          document.cloudinaryResourceType || 'raw',
+          document.cloudinaryResourceType === 'image' ? 'raw' : 'image',
+        ],
+      })),
+  ];
+  const deletedCloudinaryAssets = await destroyCloudinaryAssets(
+    cloudinaryAssets,
+    {
+      failureMessage: 'Failed to delete profile asset from Cloudinary',
+      context: { profileId: profile._id },
+    },
+  );
+
+  const deletion = {
+    profile: 1,
+    profileImages: profileImages.length,
+    qualificationDocuments: qualificationDocuments.length,
+    cloudinaryAssets: deletedCloudinaryAssets,
+  };
+  logSecurityEvent(SecurityEvents.PROFILE_DELETED, profile.user, {
+    ip: req.ip,
+    userAgent: req.get('user-agent'),
+    profileId: profile._id,
+    deletedBy: req.user._id,
+    deletion,
+  });
+
+  res.json({
+    message: 'Profile and related data successfully removed',
+    deleted: deletion,
+  });
 });
 
 // @description: CREATE a new review
@@ -693,101 +930,111 @@ const createProfileReview = asyncHandler(async (req, res) => {
     throw new Error('Invalid user profile ID format');
   }
 
-  // Get reviewer profile
-  const reviewerProfile = await UserReviewer.findById(req.params.id);
-  if (!reviewerProfile) {
-    res.status(404);
-    throw new Error('Reviewer profile not found');
-  }
-  if (reviewerProfile.isConfirmed !== true) {
-    res.status(403);
-    throw new Error('Please confirm your email address before submitting a review');
-  }
-
-  // Get target profile (use findOne, not find)
-  const profile = await Profile.findOne({ user: userProfileId });
-  if (!profile) {
-    res.status(404);
-    throw new Error('Profile not found');
-  }
-
-  // Confirm the target account still exists.
-  const user = await User.findById(userProfileId);
-  if (!user) {
-    res.status(404);
-    throw new Error('User not found');
-  }
-
-  // PREVENT SELF-REVIEW
-  if (
-    reviewerProfile.userProfileId &&
-    reviewerProfile.userProfileId.toString() === userProfileId.toString()
-  ) {
-    res.status(400);
-    throw new Error('You cannot review your own profile');
-  }
-
-  // Check if already reviewed (more efficient)
-  const alreadyReviewed = profile.reviews.some(
-    (r) => r.user.toString() === req.params.id
-  );
-
-  if (alreadyReviewed) {
-    res.status(400);
-    throw new Error('You have already reviewed this profile');
-  }
-
   // ENFORCE conditions acceptance (strict boolean check)
   if (acceptConditions !== true) {
     res.status(400);
     throw new Error('You must accept the review conditions');
   }
 
-  const review = {
-    user: req.params.id,
-    name: reviewerProfile.name,
-    showName,
-    rating: Number(rating),
-    comment,
-    userProfileId: reviewerProfile.userProfileId,
-    hasAccepted: true,
-  };
+  const session = await mongoose.startSession();
+  let submittedStatus;
 
-  const screening = screenReview(
-    comment,
-    profile.reviews.map((existingReview) => existingReview.comment),
-  );
-  review.status = screening.flags.length ? 'under_moderation' : 'pending_review';
-  review.screening = screening;
-  review.moderationHistory = [
-    {
-      action: 'submitted',
-      toStatus: 'pending_review',
-      createdAt: new Date(),
-    },
-    {
-      action: 'screened',
-      fromStatus: 'pending_review',
-      toStatus: review.status,
-      reason: screening.flags.length ? screening.flags.join(', ') : null,
-      createdAt: new Date(),
-    },
-  ];
+  try {
+    await session.withTransaction(async () => {
+      const reviewerProfile = await UserReviewer.findOne({
+        _id: req.params.id,
+        deletionPending: { $ne: true },
+      })
+        .select('+deletionPending')
+        .session(session);
 
-  profile.reviews.push(review);
+      if (!reviewerProfile) {
+        res.status(404);
+        throw new Error('Reviewer profile not found');
+      }
+      if (reviewerProfile.isConfirmed !== true) {
+        res.status(403);
+        throw new Error(
+          'Please confirm your email address before submitting a review',
+        );
+      }
 
-  // Update stats using helper
-  updateProfileStats(profile);
+      const profile = await Profile.findOne({
+        user: userProfileId,
+        lifecycleStatus: { $ne: 'deleting' },
+      }).session(session);
+      if (!profile) {
+        res.status(404);
+        throw new Error('Profile not found');
+      }
 
-  await profile.save();
+      const user = await User.findById(userProfileId).session(session);
+      if (!user) {
+        res.status(404);
+        throw new Error('User not found');
+      }
 
-  // Mark reviewer as having submitted (optional business logic)
-  reviewerProfile.hasSubmittedReview = true;
-  await reviewerProfile.save();
+      if (
+        reviewerProfile.userProfileId &&
+        reviewerProfile.userProfileId.toString() === userProfileId.toString()
+      ) {
+        res.status(400);
+        throw new Error('You cannot review your own profile');
+      }
+
+      if (hasReviewerAlreadyReviewed(profile.reviews, req.params.id)) {
+        res.status(400);
+        throw new Error('You have already reviewed this profile');
+      }
+
+      const review = {
+        user: req.params.id,
+        name: reviewerProfile.name,
+        showName,
+        rating: Number(rating),
+        comment,
+        userProfileId: reviewerProfile.userProfileId,
+        hasAccepted: true,
+      };
+
+      const screening = screenReview(
+        comment,
+        profile.reviews.map((existingReview) => existingReview.comment),
+      );
+      review.status = screening.flags.length
+        ? 'under_moderation'
+        : 'pending_review';
+      review.screening = screening;
+      review.moderationHistory = [
+        {
+          action: 'submitted',
+          toStatus: 'pending_review',
+          createdAt: new Date(),
+        },
+        {
+          action: 'screened',
+          fromStatus: 'pending_review',
+          toStatus: review.status,
+          reason: screening.flags.length ? screening.flags.join(', ') : null,
+          createdAt: new Date(),
+        },
+      ];
+
+      profile.reviews.push(review);
+      updateProfileStats(profile);
+      await profile.save({ session });
+
+      reviewerProfile.hasSubmittedReview = true;
+      await reviewerProfile.save({ session });
+      submittedStatus = review.status;
+    });
+  } finally {
+    await session.endSession();
+  }
 
   res.status(201).json({
     message: 'Review submitted for moderation',
-    status: review.status,
+    status: submittedStatus,
   });
 });
 
@@ -801,7 +1048,10 @@ const updateProfileQualificationToTrue = asyncHandler(async (req, res) => {
     throw new Error('Invalid profile ID format');
   }
 
-  const profile = await Profile.findById(req.params.id);
+  const profile = await Profile.findOne({
+    _id: req.params.id,
+    lifecycleStatus: { $ne: 'deleting' },
+  });
 
   if (profile) {
     const updateProfile = await saveProfileQualificationSummary(
@@ -891,6 +1141,7 @@ const getAllProfileImagesPublic = asyncHandler(async (req, res) => {
 export {
   getAllProfiles,
   getAllProfilesAdmin,
+  getProfileReviewsAdmin,
   getProfileById,
   createProfile,
   getProfile,

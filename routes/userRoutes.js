@@ -22,7 +22,11 @@ import {
   passwordResetLimiter
 } from '../middleware/rateLimitMiddleware.js';
 import { validate } from '../middleware/validationMiddleware.js';
-import { adminUserListQuerySchema } from '../validators/userValidator.js';
+import {
+  adminUserIdSchema,
+  adminUserListQuerySchema,
+  updateIsAdminSchema,
+} from '../validators/userValidator.js';
 
 const router = express.Router();
 
@@ -53,7 +57,7 @@ router
 router
   .route('/users/:id')
   .get(protect, admin, getUserProfileById) // FIXED: was incorrectly using getUserProfile
-  .delete(protect, admin, deleteUser);
+  .delete(protect, admin, validate(adminUserIdSchema, 'params'), deleteUser);
 
 router.patch('/users/:id/public-profile-status', protect, admin, updatePublicProfileStatus);
 
@@ -61,6 +65,12 @@ router.patch('/users/:id/public-profile-status', protect, admin, updatePublicPro
 router
   .route('/user/profile/:id')
   .get(getUserProfileById) // Public access
-  .put(protect, admin, updateIsAdmin);
+  .put(
+    protect,
+    admin,
+    validate(adminUserIdSchema, 'params'),
+    validate(updateIsAdminSchema),
+    updateIsAdmin,
+  );
 
 export default router;

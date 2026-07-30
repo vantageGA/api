@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import {
+  adminProfileListQuerySchema,
+  adminProfileReviewsQuerySchema,
   profileDraftRequestSchema,
   updateProfileSchema,
   paginationSchema,
@@ -91,4 +93,31 @@ test('deleteReviewSchema requires an audit reason', () => {
   const reviewId = new mongoose.Types.ObjectId().toString();
   assert.ok(deleteReviewSchema.validate({ reviewId }).error);
   assert.equal(deleteReviewSchema.validate({ reviewId, reason: 'Reported personal information' }).error, undefined);
+});
+
+test('admin profile list and review pagination are bounded and defaulted', () => {
+  assert.deepEqual(adminProfileListQuerySchema.validate({}).value, {
+    page: 1,
+    limit: 25,
+    search: '',
+    location: '',
+    qualificationStatus: '',
+    sortBy: 'createdAt',
+    sortDirection: 'desc',
+  });
+  assert.equal(
+    adminProfileListQuerySchema.validate({
+      qualificationStatus: 'approved',
+      sortBy: 'rating',
+      sortDirection: 'asc',
+    }).error,
+    undefined,
+  );
+  assert.ok(adminProfileListQuerySchema.validate({ limit: 101 }).error);
+  assert.ok(adminProfileListQuerySchema.validate({ sortBy: 'password' }).error);
+  assert.deepEqual(adminProfileReviewsQuerySchema.validate({}).value, {
+    page: 1,
+    limit: 20,
+  });
+  assert.ok(adminProfileReviewsQuerySchema.validate({ limit: 51 }).error);
 });

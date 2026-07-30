@@ -126,6 +126,12 @@ const profileSchema = mongoose.Schema(
       unique: true, // Each user can only have one profile
       ref: 'User',
     },
+    lifecycleStatus: {
+      type: String,
+      enum: ['active', 'deleting'],
+      default: 'active',
+      index: true,
+    },
     name: {
       type: String,
     },

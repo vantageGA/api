@@ -49,7 +49,11 @@ const protectReviewer = asyncHandler(async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(authorization.split(' ')[1], process.env.JWT_SECRET);
-    req.reviewer = await UserReviewer.findById(decoded.id).select('-password');
+    req.reviewer = await UserReviewer.findOne({
+      _id: decoded.id,
+      deletionPending: { $ne: true },
+    })
+      .select('-password +deletionPending');
     if (!req.reviewer) throw new Error('Reviewer not found');
     next();
   } catch (error) {

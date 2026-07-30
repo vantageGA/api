@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  adminUserIdSchema,
   checkoutSessionSchema,
   registerSchema,
   resetPasswordSchema,
@@ -61,4 +62,14 @@ test('checkoutSessionSchema validates only checkout lookup fields', () => {
   assert.equal(value.name, undefined);
   assert.equal(value.password, undefined);
   assert.equal(value.ignored, undefined);
+});
+
+test('admin user identifiers are validated before role and deletion handlers', () => {
+  assert.equal(
+    adminUserIdSchema.validate({
+      id: '507f1f77bcf86cd799439011',
+    }).error,
+    undefined,
+  );
+  assert.ok(adminUserIdSchema.validate({ id: 'not-an-object-id' }).error);
 });

@@ -167,6 +167,16 @@ export const updateIsAdminSchema = Joi.object({
     })
 });
 
+export const adminUserIdSchema = Joi.object({
+  id: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid user ID format',
+      'any.required': 'User ID is required',
+    }),
+});
+
 export const updatePublicProfileStatusSchema = Joi.object({
   status: Joi.string().valid('active', 'disabled', 'pending_review').required(),
   reason: Joi.string().trim().max(500).allow('', null).optional(),

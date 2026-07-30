@@ -2,9 +2,12 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import cloudinary from 'cloudinary';
+import mongoose from 'mongoose';
+import asyncHandler from 'express-async-handler';
 import ProfileImages from '../models/profileImageModel.js';
 import Profile from '../models/profileModel.js';
 import { protect, requireActiveSubscription } from '../middleware/authMiddleware.js';
+import { destroyCloudinaryAssets } from '../utils/cloudinaryAssetCleanup.js';
 
 const router = express.Router();
 
@@ -40,8 +43,12 @@ const upload = multer({
 // @route: POST /api/profileUpload
 // @access: Private
 
-router.post('/', protect, requireActiveSubscription, upload.single('profileImage'), async (req, res) => {
-  try {
+router.post(
+  '/',
+  protect,
+  requireActiveSubscription,
+  upload.single('profileImage'),
+  asyncHandler(async (req, res) => {
     if (!req.file?.path) {
       res.status(400);
       throw new Error('No image file provided');
@@ -57,34 +64,53 @@ router.post('/', protect, requireActiveSubscription, upload.single('profileImage
       folder: 'profileImage',
     });
 
-    // Associate the profile image with the user
-    const profile = await Profile.find({ user: req.user._id });
+    const session = await mongoose.startSession();
+    let profileImage;
 
-    if (!profile) {
-      res.status(401);
-      throw new Error(`Profile not found`);
-    } else {
-      //Create a new instance of ProfileImages
-      let profileImage = new ProfileImages({
-        user: req.user._id,
-        name: req.user.name,
-        avatar: result.secure_url,
-        cloudinaryId: result.public_id,
+    try {
+      await session.withTransaction(async () => {
+        const profile = await Profile.findOne({
+          user: req.user._id,
+          lifecycleStatus: { $ne: 'deleting' },
+        }).session(session);
+
+        if (!profile) {
+          res.status(409);
+          throw new Error('Profile is unavailable for image uploads');
+        }
+
+        [profileImage] = await ProfileImages.create(
+          [
+            {
+              user: req.user._id,
+              name: req.user.name,
+              avatar: result.secure_url,
+              cloudinaryId: result.public_id,
+            },
+          ],
+          { session },
+        );
+
+        profile.profileImage = result.secure_url;
+        profile.cloudinaryId = result.public_id;
+        await profile.save({ session });
       });
-
-      //Update the Profile
-      profile[0].profileImage = result.secure_url;
-      profile[0].cloudinaryId = result.public_id;
-      await profile[0].save();
-
-      //Save user profile
-      await profileImage.save();
-      res.status(200).json(profileImage);
+    } catch (error) {
+      await destroyCloudinaryAssets(
+        [{ publicId: result.public_id, resourceTypes: ['image'] }],
+        {
+          failureMessage:
+            'Failed to clean up a profile image after database upload failure',
+          context: { userId: req.user._id },
+        },
+      );
+      throw error;
+    } finally {
+      await session.endSession();
     }
-  } catch (error) {
-    res.status(401);
-    throw new Error(`Image not uploaded...${error}`);
-  }
-});
+
+    res.status(200).json(profileImage);
+  }),
+);
 
 export default router;

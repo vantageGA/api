@@ -162,7 +162,8 @@
 - `PUT /api/users/profile` -> `updateUserProfile` (auth)
 - `GET /api/user/profile/:id` -> `getUserProfileById` (public)
 - `GET /api/users/:id` -> `getUserProfileById` (admin)
-- `DELETE /api/users/:id` -> `deleteUser` (admin)
+- `DELETE /api/users/:id` -> `deleteUser` (admin; blocks deletion while live
+  Stripe billing is active/trialing or cannot be safely reconciled)
 - `PUT /api/user/profile/:id` -> `updateIsAdmin` (admin)
 - `POST /api/user-forgot-password` -> `userForgotPassword` (public, rate limit)
 - `PUT /api/user-update-password` -> `updateUserProfilePassword` (public)
@@ -172,9 +173,13 @@
 ### Reviewer Accounts
 - `POST /api/users-review/login` -> `authUserReview` (public)
 - `POST /api/users-review` -> `registerUserReviewer` (public)
-- `GET /api/reviewers/admin` -> `getAllUsersReviews` (admin)
-- `GET /api/reviewer/public/:id` -> `getAllUsersReviewers` (public)
-- `DELETE /api/reviewer/admin/:id` -> `deleteReviewer` (admin)
+- `GET /api/reviewers/admin` -> `getAllUsersReviews` (admin, validated
+  pagination/search/status filters, explicit safe reviewer DTO)
+- `GET /api/reviewers/me` -> `getAllUsersReviewers` (reviewer JWT, explicit
+  safe self DTO)
+- `DELETE /api/reviewer/admin/:id` -> `deleteReviewer` (admin, validated id;
+  deletion-pending guard plus atomic retained-review anonymisation/account
+  removal)
 - `POST /api/reviewer-forgot-password` -> `reviewerForgotPassword` (public)
 - `PUT /api/reviewer-update-password` -> `updateReviewerPassword` (public)
 
@@ -193,10 +198,17 @@
 - `PUT /api/profile` -> `updateProfile` (auth)
 - `PATCH /api/profile/onboarding-tutorial` -> `updateOnboardingTutorialStatus` (auth)
 - `PUT /api/profile-clicks` -> `updateProfileClicks` (public)
-- `POST /api/profiles/:id/reviews` -> `createProfileReview` (auth, review rate limit)
+- `POST /api/profiles/:id/reviews` -> `createProfileReview` (auth, review rate
+  limit; atomic reviewer/profile write and deletion-race guards)
 - `DELETE /api/profiles/:id/reviews` -> `deleteReview` (admin)
-- `GET /api/profiles/admin` -> `getAllProfilesAdmin` (admin)
-- `DELETE /api/profiles/admin/:id` -> `deleteProfile` (admin)
+- `GET /api/profiles/admin` -> `getAllProfilesAdmin` (admin, validated
+  pagination/search/qualification/sort filters, explicit list projection)
+- `GET /api/profiles/admin/:id/reviews` -> `getProfileReviewsAdmin` (admin,
+  validated pagination, published-review DTO)
+- `DELETE /api/profiles/admin/:id` -> `deleteProfile` (admin; atomically marks
+  the profile deleting, transactionally removes profile media/document
+  records, then performs deduplicated best-effort external cleanup with legacy
+  resource-type fallback)
 - `PUT /api/profiles/admin/:id` -> `updateProfileQualificationToTrue` (admin)
 - `GET /api/profile-images` -> `getAllProfileImages` (auth)
 - `GET /api/profile-images-public/:id` -> `getAllProfileImagesPublic` (public)

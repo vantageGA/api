@@ -16,6 +16,7 @@ const userReviewerSchema = mongoose.Schema(
     password: {
       type: String,
       required: true,
+      select: false,
     },
     isConfirmed: {
       type: Boolean,
@@ -26,18 +27,27 @@ const userReviewerSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    deletionPending: {
+      type: Boolean,
+      default: false,
+      select: false,
+    },
     resetPasswordToken: {
       type: String,
+      select: false,
     },
     resetPasswordTokenExpiry: {
       type: Date,
+      select: false,
     },
     resetPasswordAttempts: {
       type: Number,
       default: 0,
+      select: false,
     },
     resetPasswordLastAttempt: {
       type: Date,
+      select: false,
     },
   },
   {
@@ -66,7 +76,7 @@ userReviewerSchema.methods.clearPasswordResetToken = function () {
 // Adding the encrypton before saving to DB
 userReviewerSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
-    next();
+    return next();
   }
 
   const salt = await bcrypt.genSalt(10);
