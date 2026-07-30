@@ -7,7 +7,9 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "start": "node server.js",
-    "server": "nodemon server.js"
+    "server": "nodemon server.js",
+    "verify:stripe": "node scripts/verifyStripeConfiguration.js",
+    "ensure:analytics-indexes": "node scripts/ensureAnalyticsIndexes.js"
   },
   "repository": {
     "type": "git",

@@ -239,13 +239,16 @@ export const paginationSchema = Joi.object({
     'number.min': 'Limit must be at least 1',
     'number.max': 'Limit must not exceed 100',
   }),
-  location: Joi.string().max(200).allow('').messages({
+  location: Joi.string().trim().max(200).allow('').messages({
     'string.max': 'Location filter must not exceed 200 characters',
   }),
-  specialisation: Joi.string().max(400).allow('').messages({
-    'string.max': 'Specialisation filter must not exceed 400 characters',
+  specialisation: Joi.string().trim().max(200).allow('').messages({
+    'string.max': 'Specialisation filter must not exceed 200 characters',
   }),
-  search: Joi.string().max(200).allow('').messages({
+  search: Joi.string().trim().max(200).allow('').messages({
     'string.max': 'Search query must not exceed 200 characters',
   }),
+  analyticsSource: Joi.string()
+    .valid('homepage', 'directory')
+    .default('homepage'),
 });

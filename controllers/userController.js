@@ -4,6 +4,7 @@ import User from '../models/userModel.js';
 import Profile from '../models/profileModel.js';
 import ProfileImages from '../models/profileImageModel.js';
 import UserProfileImages from '../models/imageUploadModal.js';
+import LoginEvent from '../models/loginEventModel.js';
 import cloudinary from 'cloudinary';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -27,6 +28,7 @@ import {
   sendProfileReactivatedEmail,
 } from '../services/emailService.js';
 import { syncUserSubscriptionFromStripe } from '../services/subscriptionStatusService.js';
+import { recordMemberLogin } from '../services/loginAnalyticsService.js';
 import { logSecurityEvent, SecurityEvents, logError } from '../utils/auditLogger.js';
 
 const authUserResponse = (user, extra = {}) => ({
@@ -45,19 +47,97 @@ const authUserResponse = (user, extra = {}) => ({
   ...extra,
 });
 
+export const ADMIN_USER_LIST_FIELDS = [
+  '_id',
+  'name',
+  'email',
+  'profileImage',
+  'isAdmin',
+  'isConfirmed',
+  'isSubscribed',
+  'plan',
+  'currentPeriodEnd',
+  'paymentStatus',
+  'publicProfileStatus',
+  'publicProfileStatusReason',
+  'publicProfileStatusUpdatedAt',
+  'publicProfileStatusUpdatedBy',
+  'publicProfileStatusHistory',
+  'createdAt',
+  'updatedAt',
+];
+
+export const serializeAdminUser = (user) => {
+  const source = typeof user?.toObject === 'function' ? user.toObject() : user;
+
+  return ADMIN_USER_LIST_FIELDS.reduce((safeUser, field) => {
+    if (source?.[field] !== undefined) {
+      safeUser[field] = source[field];
+    }
+    return safeUser;
+  }, {});
+};
+
+export const captureMemberLoginAnalytics = (user, {
+  recordLogin = recordMemberLogin,
+  onError = logError,
+} = {}) => {
+  if (user.isAdmin) return false;
+
+  Promise.resolve()
+    .then(() => recordLogin(user._id))
+    .catch((error) => {
+      try {
+        onError('Failed to record member login analytics', error, {
+          userId: user._id,
+        });
+      } catch {
+        // Authentication must never fail because analytics logging failed.
+      }
+    });
+  return true;
+};
+
+export const deleteMemberLoginAnalytics = async (
+  userId,
+  {
+    LoginEventModel = LoginEvent,
+    session,
+  } = {},
+) => {
+  const result = await LoginEventModel.deleteMany(
+    { userId },
+    session ? { session } : undefined,
+  );
+  return result.deletedCount || 0;
+};
+
 // @description: Get All the users Profiles
 // @route: GET /api/users
 // @access: Admin
 const getAllUsersProfile = asyncHandler(async (req, res) => {
-  const users = await User.find({})
-    .populate('publicProfileStatusHistory.changedBy', 'name email')
-    .populate('publicProfileStatusUpdatedBy', 'name email');
-  if (users) {
-    res.json(users);
-  } else {
-    res.status(404);
-    throw new Error('No users found');
-  }
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 50;
+  const skip = (page - 1) * limit;
+
+  const [users, total] = await Promise.all([
+    User.find({})
+      .select(ADMIN_USER_LIST_FIELDS.join(' '))
+      .populate('publicProfileStatusHistory.changedBy', 'name')
+      .populate('publicProfileStatusUpdatedBy', 'name')
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    User.countDocuments({}),
+  ]);
+
+  res.json({
+    users: users.map(serializeAdminUser),
+    page,
+    pages: Math.max(1, Math.ceil(total / limit)),
+    total,
+  });
 });
 
 // @description: Authenticate a user and get a token
@@ -104,6 +184,8 @@ const authUser = asyncHandler(async (req, res) => {
     });
 
     const syncedUser = await syncUserSubscriptionFromStripe(user);
+
+    captureMemberLoginAnalytics(syncedUser);
 
     res.json(authUserResponse(syncedUser));
   } else {
@@ -385,6 +467,7 @@ const deleteUser = asyncHandler(async (req, res) => {
       userProfileImages: 0,
       profile: 0,
       cloudinaryFiles: 0,
+      loginEvents: 0,
       user: 0
     };
 
@@ -444,7 +527,12 @@ const deleteUser = asyncHandler(async (req, res) => {
       deletionStats.profile = 1;
     }
 
-    // 4. Delete the User
+    // 4. Delete personally linked login analytics.
+    deletionStats.loginEvents = await deleteMemberLoginAnalytics(user._id, {
+      session,
+    });
+
+    // 5. Delete the User
     await user.deleteOne({ session });
     deletionStats.user = 1;
 

@@ -22,6 +22,7 @@ The React client must not receive OpenAI credentials.
 Required for production subscription checkout:
 
 - `STRIPE_SECRET_KEY` — Stripe secret key used by the API to create checkout sessions, retrieve checkout success sessions, and reconcile subscription state.
+- `STRIPE_PUBLISHABLE_KEY` — publishable key used for environment validation. It must use the same Stripe mode/account as the client `VITE_STRIPE_PUBLISHABLE_KEY`.
 - `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret used by `/api/stripe/webhook`.
 - `STRIPE_PRICE_MONTHLY` — monthly subscription price id. Must start with `price_`.
 - `STRIPE_PRICE_ANNUAL` — annual subscription price id. Must start with `price_`.
@@ -35,8 +36,45 @@ Subscription behavior notes:
 - `/subscribe/success?session_id=...` verifies the session through `GET /api/checkout-session/:sessionId`, then hydrates login state after Stripe confirms the session.
 - Login and `GET /api/users/profile` reconcile subscription state from Stripe when the Mongo user has `stripeCustomerId` or `stripeSubscriptionId`.
 - Historic paid users missing both Stripe IDs in Mongo require audit/backfill; they cannot be safely matched from login alone.
+- The admin analytics service also uses `STRIPE_SECRET_KEY` to aggregate paid
+  and open invoices plus subscriptions. MongoDB membership panels remain
+  available when Stripe fails.
+
+### Stripe environment consistency
+
+Checkout, webhooks, reconciliation, and analytics must use one coherent Stripe
+account and mode:
+
+- API: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`,
+  `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MONTHLY`,
+  `STRIPE_PRICE_ANNUAL`.
+- Client: `VITE_STRIPE_PUBLISHABLE_KEY`.
+
+Do not combine live customer/subscription IDs with test credentials or mix test
+and live Price IDs. The analytics response intentionally emits a
+`dataQualityWarnings` entry when MongoDB reports active paid members but the
+configured Stripe account returns no subscriptions.
+
+Startup validation checks recognized secret/publishable key prefixes and
+test/live mode coherence. Account and Price ownership require the authenticated
+deployment probe:
+
+```bash
+npm run verify:stripe
+```
+
+The probe prints classifications/results only, never credential or Price
+values. Set `LOGIN_ANALYTICS_STARTED_AT` to the ISO-8601 timestamp at which
+member-login capture is deployed so completeness does not drift with TTL
+expiry.
+
+Current deferred state (2026-07-29): the local API/client still use test-mode
+keys. MongoDB reports four active paid members with Stripe IDs while that test
+account returns no subscriptions or invoices. The UI warning must remain until
+the matching live environment is configured and verified.
 
 Reference: `../../docs/subscription-login-checkout-handoff.md`.
+Analytics reference: `ANALYTICS.md`.
 
 ## Current .env Configuration Status
 

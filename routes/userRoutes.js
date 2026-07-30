@@ -21,6 +21,8 @@ import {
   registrationLimiter,
   passwordResetLimiter
 } from '../middleware/rateLimitMiddleware.js';
+import { validate } from '../middleware/validationMiddleware.js';
+import { adminUserListQuerySchema } from '../validators/userValidator.js';
 
 const router = express.Router();
 
@@ -31,7 +33,7 @@ router.post('/users/login', loginLimiter, authUser);
 router
   .route('/users')
   .post(registrationLimiter, registerUser)
-  .get(protect, admin, getAllUsersProfile);
+  .get(protect, admin, validate(adminUserListQuerySchema, 'query'), getAllUsersProfile);
 
 // Password reset routes (with rate limiting)
 router.post('/user-forgot-password', passwordResetLimiter, userForgotPassword);

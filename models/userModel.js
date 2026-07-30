@@ -75,6 +75,11 @@ const userSchema = mongoose.Schema(
       type: String, // 'pending', 'active', 'failed', 'canceled'
       default: 'pending',
     },
+    lastSuccessfulLoginAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     // Deliberately separate from account, qualification and payment states.
     // This controls only whether a member's professional profile is public.
     publicProfileStatus: {
@@ -117,6 +122,9 @@ const userSchema = mongoose.Schema(
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
+
+userSchema.index({ isAdmin: 1, createdAt: 1 });
+userSchema.index({ isSubscribed: 1, paymentStatus: 1, currentPeriodEnd: 1 });
 
 // Create hashed password reset token
 userSchema.methods.createPasswordResetToken = function (token) {

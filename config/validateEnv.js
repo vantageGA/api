@@ -50,6 +50,30 @@ const positiveIntegerEnvVars = [
 // MongoDB URI can be either MONGO_URI or MONGODB_URI
 const mongoUriVars = ['MONGO_URI', 'MONGODB_URI'];
 
+export const stripeKeyMode = (value = '') => {
+  if (value.startsWith('sk_live_') || value.startsWith('pk_live_')) return 'live';
+  if (value.startsWith('sk_test_') || value.startsWith('pk_test_')) return 'test';
+  return null;
+};
+
+export const getStripeConfigurationWarnings = (env = process.env) => {
+  const warnings = [];
+  const secretMode = stripeKeyMode(env.STRIPE_SECRET_KEY);
+  const publishableMode = stripeKeyMode(env.STRIPE_PUBLISHABLE_KEY);
+
+  if (env.STRIPE_SECRET_KEY && !secretMode) {
+    warnings.push('STRIPE_SECRET_KEY is not a recognized Stripe test/live secret key');
+  }
+  if (env.STRIPE_PUBLISHABLE_KEY && !publishableMode) {
+    warnings.push('STRIPE_PUBLISHABLE_KEY is not a recognized Stripe test/live publishable key');
+  }
+  if (secretMode && publishableMode && secretMode !== publishableMode) {
+    warnings.push('Stripe secret and publishable keys use different test/live modes');
+  }
+
+  return warnings;
+};
+
 export const validateEnv = () => {
   console.log('Validating environment variables...');
 
@@ -158,6 +182,18 @@ export const validateEnv = () => {
     if (value && !value.startsWith('price_')) {
       warnings.push(`${varName} should be a Stripe Price ID starting with "price_"`);
     }
+  }
+  warnings.push(...getStripeConfigurationWarnings(process.env));
+
+  if (process.env.LOGIN_ANALYTICS_STARTED_AT) {
+    const loginAnalyticsStartedAt = new Date(process.env.LOGIN_ANALYTICS_STARTED_AT);
+    if (Number.isNaN(loginAnalyticsStartedAt.getTime())) {
+      warnings.push('LOGIN_ANALYTICS_STARTED_AT must be a valid ISO-8601 timestamp');
+    }
+  } else if (process.env.NODE_ENV === 'production') {
+    warnings.push(
+      'LOGIN_ANALYTICS_STARTED_AT is not set; login trend completeness cannot be asserted',
+    );
   }
 
   const aiProfileDraftEnabled = process.env.AI_PROFILE_DRAFT_ENABLED === 'true';

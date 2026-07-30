@@ -114,6 +114,14 @@ export const checkoutLimiter = rateLimit({
   }
 });
 
+export const searchAnalyticsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { error: 'Too many analytics events. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Rate limiter for qualification document mutations
 export const qualificationDocumentMutationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

@@ -20,6 +20,7 @@ import profileRoutes from './routes/profileRoutes.js';
 import qualificationDocumentRoutes from './routes/qualificationDocumentRoutes.js';
 import userReviewRoutes from './routes/userReviewRoutes.js';
 import stripeRoutes from './routes/stripeRoutes.js';
+import analyticsRoutes from './routes/analyticsRoutes.js';
 import { apiLimiter } from './middleware/rateLimitMiddleware.js';
 import { validateEnv } from './config/validateEnv.js';
 import { initEmailTransporter } from './utils/emailService.js';
@@ -107,6 +108,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), strip
 app.use('/api', confirmEmailRoutes);
 app.use('/api', contactFormRoutes);
 app.use('/api', userRoutes);
+app.use('/api', analyticsRoutes);
 
 // Qualification document routes must be registered before profileRoutes
 // so /api/profile/qualification-documents is not matched by /api/profile/:id

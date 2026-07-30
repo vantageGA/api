@@ -1,5 +1,15 @@
 import stripe from '../config/stripe.js';
 import User from '../models/userModel.js';
+import { getSubscriptionPeriodEndSeconds } from '../services/subscriptionStatusService.js';
+
+const invoiceSubscriptionId = (invoice) => (
+  invoice.subscription
+  || (
+    invoice.parent?.type === 'subscription_details'
+    && invoice.parent.subscription_details?.subscription
+  )
+  || null
+);
 
 export const stripeWebhookHandler = async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -34,7 +44,8 @@ export const stripeWebhookHandler = async (req, res) => {
           
           const sub = await stripe.subscriptions.retrieve(subscriptionId);
           user.plan = sub.items.data[0].price.id;
-          user.currentPeriodEnd = new Date(sub.current_period_end * 1000);
+          const periodEnd = getSubscriptionPeriodEndSeconds(sub);
+          if (periodEnd) user.currentPeriodEnd = new Date(periodEnd * 1000);
           await user.save();
         }
         break;
@@ -47,9 +58,11 @@ export const stripeWebhookHandler = async (req, res) => {
         if (user) {
           user.isSubscribed = true;
           user.paymentStatus = 'active';
-          if (invoice.subscription) {
-            const sub = await stripe.subscriptions.retrieve(invoice.subscription);
-            user.currentPeriodEnd = new Date(sub.current_period_end * 1000);
+          const subscriptionId = invoiceSubscriptionId(invoice);
+          if (subscriptionId) {
+            const sub = await stripe.subscriptions.retrieve(subscriptionId);
+            const periodEnd = getSubscriptionPeriodEndSeconds(sub);
+            if (periodEnd) user.currentPeriodEnd = new Date(periodEnd * 1000);
             user.plan = sub.items.data[0].price.id;
           }
           await user.save();
@@ -88,7 +101,8 @@ export const stripeWebhookHandler = async (req, res) => {
           user.isSubscribed = (subscription.status === 'active' || subscription.status === 'trialing');
           user.paymentStatus = user.isSubscribed ? 'active' : subscription.status;
           user.plan = subscription.items.data[0].price.id;
-          user.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+          const periodEnd = getSubscriptionPeriodEndSeconds(subscription);
+          if (periodEnd) user.currentPeriodEnd = new Date(periodEnd * 1000);
           await user.save();
         }
         break;

@@ -14,6 +14,7 @@ import {
 } from '../utils/profileHelpers.js';
 import { validateObjectId } from '../validators/commonValidators.js';
 import { isPublicReview, screenReview } from '../services/reviewModerationService.js';
+import { createSearchAnalyticsReceipt } from '../utils/searchAnalyticsReceipt.js';
 
 const isOnboardingTutorialEnforced = () => {
   if (process.env.ONBOARDING_TUTORIAL_ENFORCED === undefined) {
@@ -61,7 +62,7 @@ const SEARCH_STOP_WORDS = new Set([
   'with',
 ]);
 
-const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const normalizeSearchTerm = (value = '') =>
   value
@@ -281,10 +282,10 @@ const getAllProfiles = asyncHandler(async (req, res) => {
 
   // Additional filters (can be combined with search)
   if (req.query.location) {
-    filter.location = new RegExp(req.query.location.trim(), 'i');
+    filter.location = new RegExp(escapeRegex(req.query.location), 'i');
   }
   if (req.query.specialisation) {
-    filter.specialisation = new RegExp(req.query.specialisation.trim(), 'i');
+    filter.specialisation = new RegExp(escapeRegex(req.query.specialisation), 'i');
   }
 
   let profilesQuery;
@@ -320,12 +321,24 @@ const getAllProfiles = asyncHandler(async (req, res) => {
   ]);
   const total = hasSearch ? totalResult[0]?.total || 0 : totalResult;
 
+  const analyticsReceipt = page === 1
+    ? createSearchAnalyticsReceipt({
+      query: req.query.search,
+      profession: req.query.specialisation,
+      location: req.query.location,
+      resultsCount: total,
+      page,
+      source: req.query.analyticsSource,
+    })
+    : null;
+
   res.json({
     profiles,
     page,
     pages: Math.ceil(total / limit),
     total,
     hasSearch,
+    analyticsReceipt,
   });
 });
 
@@ -344,10 +357,10 @@ const getAllProfilesAdmin = asyncHandler(async (req, res) => {
   // Build filter
   const filter = {};
   if (req.query.location) {
-    filter.location = new RegExp(req.query.location, 'i');
+    filter.location = new RegExp(escapeRegex(req.query.location), 'i');
   }
   if (req.query.specialisation) {
-    filter.specialisation = new RegExp(req.query.specialisation, 'i');
+    filter.specialisation = new RegExp(escapeRegex(req.query.specialisation), 'i');
   }
 
   const [profiles, total] = await Promise.all([

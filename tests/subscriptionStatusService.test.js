@@ -26,9 +26,11 @@ test('syncUserSubscriptionFromStripe activates a stale DB user when Stripe has a
               id: 'sub_123',
               status: 'active',
               customer: 'cus_123',
-              current_period_end: periodEnd,
               items: {
-                data: [{ price: { id: 'price_monthly' } }],
+                data: [{
+                  price: { id: 'price_monthly' },
+                  current_period_end: periodEnd,
+                }],
               },
             },
           ],
@@ -44,6 +46,7 @@ test('syncUserSubscriptionFromStripe activates a stale DB user when Stripe has a
   assert.equal(syncedUser.stripeSubscriptionId, 'sub_123');
   assert.equal(syncedUser.plan, 'price_monthly');
   assert.ok(syncedUser.currentPeriodEnd instanceof Date);
+  assert.equal(syncedUser.currentPeriodEnd.getTime(), periodEnd * 1000);
   assert.equal(saveCount, 1);
 });
 

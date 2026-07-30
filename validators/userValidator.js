@@ -172,6 +172,11 @@ export const updatePublicProfileStatusSchema = Joi.object({
   reason: Joi.string().trim().max(500).allow('', null).optional(),
 });
 
+export const adminUserListQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(50),
+});
+
 // MongoDB ObjectId validation helper
 export const validateObjectId = (id) => {
   const objectIdPattern = /^[0-9a-fA-F]{24}$/;

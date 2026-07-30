@@ -70,6 +70,7 @@
 - `routes/imageUploadRoutes.js` -> `controllers/imageUploadController.js`
 - `routes/profileImageRoutes.js` -> `controllers/imageUploadController.js` (profile upload path)
 - `routes/stripeRoutes.js` -> `controllers/stripeWebhookController.js` (webhook handled in `server.js` with raw body)
+- `routes/analyticsRoutes.js` -> `controllers/analyticsController.js`
 
 ### Models (Mongoose)
 - `models/userModel.js`
@@ -78,6 +79,8 @@
 - `models/userReviewerModel.js`
 - `models/imageUploadModal.js`
 - `models/profileImageModel.js`
+- `models/searchEventModel.js`
+- `models/loginEventModel.js`
 
 ### Middleware
 - `middleware/authMiddleware.js`: auth gate/role protection.
@@ -89,6 +92,12 @@
 ### Services / Utils
 - `services/emailService.js`: email orchestration.
 - `services/stripeService.js`: Stripe integration helpers.
+- `services/analyticsService.js`: membership/onboarding aggregation,
+  search-demand/supply aggregation, and privacy-minimised search-event capture.
+- `services/loginAnalyticsService.js`: privacy-minimised successful member-login
+  capture and engagement aggregation; 400-day TTL, no IP/user-agent storage.
+- `services/stripeAnalyticsService.js`: paginated/cached Stripe invoice and
+  subscription analytics.
 - `utils/emailService.js`: transporter init + low-level email helpers.
 - `utils/generateToken.js`: JWT helpers (token types).
 - `utils/profileHelpers.js`: keyword and qualification-summary sync helpers for profiles.
@@ -98,6 +107,10 @@
 - `scripts/migrateKeywords.js`: keywords migration and text index verification.
 - `scripts/backfillQualificationVerificationStatus.js`: backfills `qualificationVerificationStatus` from legacy `isQualificationsVerified` values.
 - `scripts/backfillQualificationDocumentResourceTypes.js`: backfills qualification document Cloudinary resource types from live Cloudinary metadata.
+- `scripts/ensureAnalyticsIndexes.js`: creates/verifies analytics TTL and
+  deduplication indexes and removes obsolete retained raw search queries.
+- `scripts/verifyStripeConfiguration.js`: safe Stripe account/Price deployment
+  probe without printing configured identifiers or credentials.
 
 ## Dependencies (runtime highlights)
 - Server: `express`, `cors`, `helmet`, `express-mongo-sanitize`, `express-rate-limit`, `dotenv`.
@@ -114,6 +127,8 @@
 - Keyword migration: `node scripts/migrateKeywords.js`
 - Qualification status backfill: `node scripts/backfillQualificationVerificationStatus.js`
 - Qualification document resource type backfill: `node scripts/backfillQualificationDocumentResourceTypes.js`
+- Analytics index migration/verification: `npm run ensure:analytics-indexes`
+- Stripe account/Price verification: `npm run verify:stripe`
 
 ## Project Skills (from .git/skills/)
 
@@ -205,13 +220,25 @@
 - `POST /api/checkout-session` -> `createCheckoutSession` (public, rate limit)
 - `POST /api/create-subscription` -> `createSubscription` (auth)
 
+### Analytics
+- `GET /api/admin/analytics/overview` -> `getAnalyticsOverview` (admin;
+  validated months/search window/timezone).
+- `POST /api/analytics/search-events` -> `captureSearchEvent` (public,
+  rate-limited, deduplicated, session-hashed, 180-day TTL).
+- Keep `dataQualityWarnings` in the response/UI. The current warning identifies
+  MongoDB paid members that cannot be reconciled with the configured Stripe
+  account; see `docs/ANALYTICS.md`.
+
 ## Data Flow (high-level)
 
 ### Request lifecycle
 - `server.js`: load env -> validate -> connect DB -> init email -> apply security + CORS + parsers + sanitize -> rate limit -> routes -> error handlers.
 
 ### Auth flow
-- Login: `POST /api/users/login` -> JWT returned -> `Authorization: Bearer <token>` -> `protect` middleware -> `req.user`.
+- Login: `POST /api/users/login` -> subscription reconciliation -> schedule a
+  failure-isolated non-admin `LoginEvent` plus durable
+  `lastSuccessfulLoginAt` -> JWT returned without waiting for analytics ->
+  `Authorization: Bearer <token>` -> `protect` middleware -> `req.user`.
 - Email verification: registration sends verification token -> `GET /api/verify?token=...` sets `isConfirmed`.
 - Password reset: `POST /api/user-forgot-password` -> email with token -> `PUT /api/user-update-password` validates token + updates password.
 
@@ -227,6 +254,36 @@
 - Webhook: `POST /api/stripe/webhook` validates signature, updates subscription status on `checkout.session.completed`, `invoice.*`, `customer.subscription.*`.
 - Login and current-user profile reads also reconcile subscription state from Stripe when Stripe IDs exist.
 
+### Analytics flow
+- Admin overview -> Mongo membership/login/search aggregations + independent
+  cached Stripe aggregation -> one response with partial-failure and
+  completeness metadata.
+- Member-level engagement ranks only current active paid members: top ten by
+  successful sign-ins in the rolling 30 days and up to ten with no sign-in in
+  that window. Identity is resolved from current `User` records only for the
+  admin-protected response; it is never copied into `LoginEvent`.
+- Member health uses the same active-paid cohort and explicit 7/30/60-day
+  recency bands plus a separate `unmeasured` segment. Do not merge cold-start
+  members into `atRisk`.
+- Onboarding is a cumulative current-state funnel: registered -> email
+  verified -> active paid -> profile -> tutorial -> core details ->
+  qualification approved.
+- Search demand/supply compares structured profession/location demand with
+  exact normalized main-field supply from currently discoverable profiles.
+- Stripe results paginate list APIs, filter subscription invoices by actual
+  payment time, use item-level renewal dates, group money by currency, use an
+  eight-second timeout, and cache for 10 minutes with stale fallback.
+- Page-one non-empty profile search -> short-lived signed
+  `analyticsReceipt`; settled capture -> receipt verification -> derived
+  `SearchEvent`. Raw query/IP are not stored, session is hashed, and TTL
+  deletion is 180 days.
+- Successful non-admin member login -> `LoginEvent`; only member ID and
+  timestamps are stored, admins/reviewers are excluded, TTL deletion is 400
+  days, and capture failure never blocks authentication.
+- If MongoDB has active paid members and Stripe returns zero subscriptions,
+  emit `dataQualityWarnings`. Do not remove this warning to conceal an
+  environment mismatch.
+
 ## Where To Look First
 - Auth + user lifecycle: `routes/userRoutes.js`, `controllers/userController.js`, `models/userModel.js`, `utils/generateToken.js`.
 - Reviewer accounts: `routes/userReviewRoutes.js`, `controllers/userReviewsController.js`, `models/userReviewerModel.js`.
@@ -234,6 +291,13 @@
 - Qualification documents: `routes/qualificationDocumentRoutes.js`, `controllers/qualificationDocumentController.js`, `models/qualificationDocumentModel.js`, `validators/qualificationDocumentValidator.js`, `middleware/qualificationDocumentUploadMiddleware.js`.
 - Email sending: `services/emailService.js`, `utils/emailService.js`.
 - Stripe: `routes/stripeRoutes.js`, `controllers/stripeWebhookController.js`, `services/stripeService.js`, `config/stripe.js`.
+- Analytics: `routes/analyticsRoutes.js`,
+  `controllers/analyticsController.js`, `services/analyticsService.js`,
+  `services/loginAnalyticsService.js`, `services/stripeAnalyticsService.js`,
+  `models/searchEventModel.js`, `models/loginEventModel.js`,
+  `validators/analyticsValidator.js`, `utils/analyticsQueries.js`,
+  `utils/timezone.js`, `utils/searchAnalyticsReceipt.js`,
+  `docs/ANALYTICS.md`.
 - Security middleware + logging: `middleware/authMiddleware.js`, `middleware/rateLimitMiddleware.js`, `middleware/errorMiddleware.js`, `utils/auditLogger.js`.
 - Env validation: `config/validateEnv.js`.
 
@@ -246,6 +310,15 @@
 - Password reset: `resetPasswordToken`, `resetPasswordTokenExpiry`, `resetPasswordAttempts`, `resetPasswordLastAttempt`.
 - Email change flow: `pendingEmail`, `emailChangeToken`, `emailChangeTokenExpiry`.
 - Stripe: `stripeCustomerId`, `stripeSubscriptionId`, `isSubscribed`, `plan`, `currentPeriodEnd`, `paymentStatus`.
+- Engagement: privacy-minimal `lastSuccessfulLoginAt`.
+
+### LoginEvent (`models/loginEventModel.js`)
+- Privacy-minimal engagement event for successful non-admin member logins.
+- Fields: `userId`, fixed `accountType=member`, `occurredAt`, `expiresAt`.
+- No email, name, IP, user agent, token, or Stripe data.
+- TTL expiry: 400 days; indexed by account/time and member/time.
+- Current health uses User `lastSuccessfulLoginAt`; deleting the User removes
+  linked LoginEvents in the same database transaction.
 
 ### Profile (`models/profileModel.js`)
 - Owner: `user` (unique per user).

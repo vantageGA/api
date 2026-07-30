@@ -7,6 +7,7 @@ import {
   paginationSchema,
   deleteReviewSchema,
 } from '../validators/profileValidator.js';
+import { escapeRegex } from '../controllers/profileController.js';
 
 test('updateProfileSchema accepts Quill HTML when visible specialisation text is within the limit', () => {
   const specialisation = `<p>${'<strong>fit</strong>'.repeat(100)}</p>`;
@@ -77,6 +78,13 @@ test('paginationSchema rejects an excessively long directory search query', () =
 
   assert.ok(error);
   assert.match(error.message, /Search query must not exceed 200 characters/);
+});
+
+test('directory filters are bounded and escaped for literal regex matching', () => {
+  assert.ok(paginationSchema.validate({ specialisation: 'a'.repeat(201) }).error);
+  assert.equal(escapeRegex('strength [advanced]+'), 'strength \\[advanced\\]\\+');
+  assert.doesNotThrow(() => new RegExp(escapeRegex('['), 'i'));
+  assert.equal(new RegExp(escapeRegex('[coach]'), 'i').test('[coach]'), true);
 });
 
 test('deleteReviewSchema requires an audit reason', () => {

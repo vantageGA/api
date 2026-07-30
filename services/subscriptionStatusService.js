@@ -12,6 +12,14 @@ const getSubscriptionCustomerId = (subscription) => {
     : subscription.customer.id;
 };
 
+export const getSubscriptionPeriodEndSeconds = (subscription) => {
+  const itemPeriodEnds = (subscription?.items?.data || [])
+    .map((item) => Number(item.current_period_end))
+    .filter(Number.isFinite);
+  return Number(subscription?.current_period_end)
+    || (itemPeriodEnds.length ? Math.min(...itemPeriodEnds) : null);
+};
+
 const applyStripeSubscriptionToUser = (user, subscription) => {
   const isActive = ACTIVE_STRIPE_STATUSES.has(subscription.status);
   const priceId = subscription.items?.data?.[0]?.price?.id;
@@ -29,8 +37,9 @@ const applyStripeSubscriptionToUser = (user, subscription) => {
     user.plan = priceId;
   }
 
-  if (subscription.current_period_end) {
-    user.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+  const currentPeriodEnd = getSubscriptionPeriodEndSeconds(subscription);
+  if (currentPeriodEnd) {
+    user.currentPeriodEnd = new Date(currentPeriodEnd * 1000);
   }
 };
 

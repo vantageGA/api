@@ -278,6 +278,8 @@ const profileSchema = mongoose.Schema(
   },
 );
 
+profileSchema.index({ qualificationVerificationStatus: 1 });
+
 // Text indexes for efficient full-text search
 // MongoDB will use these indexes for $text queries
 profileSchema.index({

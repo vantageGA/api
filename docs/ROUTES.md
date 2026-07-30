@@ -7,7 +7,7 @@ All routes are mounted under `/api` in `server.js` unless noted.
 |---|---|---|---|---|
 | POST | `/users/login` | Public | `authUser` | Login (rate limited). Auth only; does not decide subscription routing. Reconciles subscription state from Stripe before returning user data when Stripe IDs exist. |
 | POST | `/users` | Public | `registerUser` | Registration (rate limited). |
-| GET | `/users` | Admin | `getAllUsersProfile` | List all users. |
+| GET | `/users` | Admin | `getAllUsersProfile` | Safe paginated user list. Accepts `page` and `limit` (default 50, maximum 100) and returns `{ users, page, pages, total }`; authentication/reset/email-change/Stripe identifiers are excluded. |
 | GET | `/users/profile` | Auth | `getUserProfile` | Current user profile. Reconciles subscription state from Stripe before returning user data when Stripe IDs exist. |
 | PUT | `/users/profile` | Auth | `updateUserProfile` | Update current user (email change requires verification). |
 | GET | `/user/profile/:id` | Public | `getUserProfileById` | Public user profile. |
@@ -39,7 +39,7 @@ All routes are mounted under `/api` in `server.js` unless noted.
 | DELETE | `/profile/qualification-documents/:id` | Auth | `deleteQualificationDocument` | Delete a qualification document owned by the current user (mutation rate limited to 10 requests per 15 minutes per authenticated user). |
 | GET | `/profiles/admin/qualification-documents` | Admin | `getQualificationDocumentsAdmin` | Admin qualification document queue (paginated, optional `status` and `isActive` filters). |
 | PATCH | `/profiles/admin/qualification-documents/:id/review` | Admin | `reviewQualificationDocument` | Approve or reject an active qualification document (review rate limited to 60 requests per 15 minutes per admin). |
-| GET | `/profiles` | Public | `getAllProfiles` | Pagination + search (`search`, `page`, `limit`). |
+| GET | `/profiles` | Public | `getAllProfiles` | Pagination + literal bounded search filters. Non-empty page-one criteria return a short-lived signed `analyticsReceipt` binding the server-observed total. |
 | POST | `/profiles` | Auth | `createProfile` | Create profile. |
 | GET | `/profiles/:id` | Public | `getProfileById` | Profile by id. |
 | GET | `/profile/:id` | Public | `getProfileById` | Backward compatible alias. |
@@ -83,6 +83,16 @@ All routes are mounted under `/api` in `server.js` unless noted.
 | POST | `/checkout-session` | Public/optional auth | inline checkout handler | Creates hosted Stripe checkout (rate limited). Returns only `{ url }`; does not issue login state before payment succeeds. |
 | GET | `/checkout-session/:sessionId` | Public | inline checkout verification handler | Verifies Stripe checkout success session, syncs subscription state, and returns tokenized user payload for post-payment login hydration. |
 | POST | `/create-subscription` | Auth | `createSubscription` | Creates subscription for logged-in user. |
+
+## Analytics
+
+| Method | Path | Auth | Handler | Notes |
+|---|---|---|---|---|
+| GET | `/admin/analytics/overview` | Admin | `getAnalyticsOverview` | Membership, login health/engagement, cumulative onboarding, Stripe revenue, search, and demand/supply overview. Accepts `months` (1–24), `searchDays` (1–365), and `timezone=Europe/London`. Returns cross-source `dataQualityWarnings`; keep these visible in the UI. |
+| POST | `/analytics/search-events` | Public | `captureSearchEvent` | Accepts `{ eventId, sessionId, source, receipt }`; verifies the receipt from `GET /profiles`, derives minimized fields, rejects tampering/expiry/empty searches, deduplicates the event and receipt nonce, hashes sessions, stores no raw query/IP, and expires records after 180 days. |
+
+See `ANALYTICS.md` for metric definitions, privacy rules, the intentional Stripe
+reconciliation warning, and verification evidence.
 
 ## Subscription Enforcement Notes
 
